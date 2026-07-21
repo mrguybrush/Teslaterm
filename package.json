@@ -1,0 +1,61 @@
+{
+  "name": "teslaterm",
+  "version": "0.1.0",
+  "scripts": {
+    "tsc": "tsc --build --incremental",
+    "build-dev": "npm run tsc && webpack --mode=development",
+    "build": "npm run tsc && webpack --mode=production",
+    "start": "npm run tsc && electron .",
+    "package-windows": "npm run tsc && electron-builder --windows --dir",
+    "package-linux": "npm run tsc && electron-builder --linux --dir"
+  },
+  "main": "js/main/main_electron.js",
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "basic-ftp": "^5.0.5",
+    "bootstrap": "^5.3.3",
+    "ini": "^5.0.0",
+    "jspack": "0.0.4",
+    "jszip": "^3.10.1",
+    "justgage": "^1.7.0",
+    "midi-player-js": "^2.0.16",
+    "react": "^18.3.1",
+    "react-bootstrap": "^2.10.7",
+    "react-dom": "^18.3.1",
+    "rtpmidi": "^1.0.0",
+    "serialport": "12.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/ini": "^4.1.1",
+    "@types/serialport": "^8.0.5",
+    "@types/w2ui": "^1.4.37",
+    "@types/webmidi": "^2.1.0",
+    "css-loader": "^7.1.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "npm": "^11.0.0",
+    "ts-loader": "^9.5.1",
+    "tslint": "^5.20.1",
+    "tslint-no-circular-imports": "^0.7.0",
+    "typescript": "^5.7.2",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
+  },
+  "build": {
+    "appId": "teslaterm",
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "artifactName": "electron/${productName}-windows.${ext}",
+      "signAndEditExecutable": false
+    },
+    "linux": {
+      "artifactName": "electron/${productName}-linux.${ext}"
+    },
+    "asarUnpack": [
+      "js/main/connection/flightrecorder/FlightRecordingWorker.js"
+    ]
+  }
+}
