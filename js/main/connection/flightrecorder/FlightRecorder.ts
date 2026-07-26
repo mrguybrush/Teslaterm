@@ -39,7 +39,7 @@ function addEventTo(buffer: FlightRecordingBuffer, type: FlightEventType, data: 
     }
     const bufferView = new DataView(buffer.buffer, buffer.writeIndex, totalBytes);
     bufferView.setUint8(0, type);
-    bufferView.setUint32(1, microtime.now());
+    bufferView.setUint32(1, microtime.nowRelative());
     bufferView.setUint32(5, data.length);
     for (let i = 0; i < data.length; ++i) {
         bufferView.setUint8(FR_HEADER_BYTES + i, data[i]);

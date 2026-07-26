@@ -1,4 +1,4 @@
-import {ArrayBufferTarget, Muxer} from "webm-muxer";
+import {ArrayBufferTarget, Muxer} from "mp4-muxer";
 import {GaugeProps} from "../control/gauges/Gauge";
 import {scopeColors} from "../control/scope/ScopeColors";
 import {OscilloscopeTrace} from "../control/scope/Trace";
@@ -82,10 +82,11 @@ export async function exportTelemetryVideo(
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
+        fastStart: 'in-memory',
         firstTimestampBehavior: 'offset',
         target,
         video: {
-            codec: 'V_VP8',
+            codec: 'avc',
             frameRate: FPS,
             height: CANVAS_HEIGHT,
             width: CANVAS_WIDTH,
@@ -97,8 +98,9 @@ export async function exportTelemetryVideo(
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     });
     videoEncoder.configure({
+        // H.264 Baseline profile, level 3.1 - widely supported, cheap to encode in software.
         bitrate: VIDEO_BITRATE,
-        codec: 'vp8',
+        codec: 'avc1.42001f',
         framerate: FPS,
         height: CANVAS_HEIGHT,
         width: CANVAS_WIDTH,
@@ -133,7 +135,7 @@ export async function exportTelemetryVideo(
     videoEncoder.close();
     muxer.finalize();
 
-    return new Blob([target.buffer], {type: 'video/webm'});
+    return new Blob([target.buffer], {type: 'video/mp4'});
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

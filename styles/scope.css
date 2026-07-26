@@ -2,15 +2,40 @@
     height: 100%;
     background: var(--bs-body-bg);
     display: grid;
-    grid-template-rows: 20px calc(100% - 40px) 20px;
+    grid-template-rows: 20px calc(100% - 46px) 26px;
     grid-template-columns: 100%;
 }
 
 .tt-fr-scope {
     background: var(--bs-body-bg);
     display: grid;
-    grid-template-rows: calc(100% - 20px) 20px;
+    grid-template-rows: 20px calc(100% - 46px) 26px;
     grid-template-columns: 100%;
+}
+
+.tt-fr-time-progress {
+    position: relative;
+    height: 20px;
+    background: var(--bs-secondary-bg, rgba(128, 128, 128, 0.2));
+    overflow: hidden;
+}
+
+.tt-fr-time-progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: var(--bs-primary, #0d6efd);
+    opacity: 0.35;
+}
+
+.tt-fr-time-progress-label {
+    position: relative;
+    display: block;
+    font-size: 12px;
+    line-height: 20px;
+    padding-left: 4px;
+    color: var(--bs-body-color);
 }
 
 .tt-canvas {
@@ -28,10 +53,9 @@
 }
 
 .tt-trace-stats {
-    margin-right: 10px;
+    margin-right: 14px;
     overflow: hidden;
     font-size: 12px;
-    margin-top: 5px;
 }
 
 .tt-trace-stat {
@@ -46,8 +70,10 @@
 }
 
 .tt-scope-stats {
-    height: 20px;
+    height: 26px;
     overflow: hidden;
+    padding: 4px 8px;
+    box-sizing: border-box;
 }
 
 .tt-scope-middle-row {

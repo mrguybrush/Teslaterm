@@ -157,6 +157,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 </div>
                 <div className='tt-fr-telemetry-display'>
                     <div className={'tt-fr-scope'}>
+                        {this.makeTimeProgress(state)}
                         <div className={'tt-scope-middle-row'}>
                             <Traces traces={traces}/>
                             <ScopeSettings traces={traces}/>
@@ -209,10 +210,24 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 {stateAtTime, totalDurationSeconds},
                 (fraction) => this.setState({exportProgress: fraction}),
             );
-            downloadBlob(blob, `flight-recording-${Date.now()}.webm`);
+            downloadBlob(blob, `flight-recording-${Date.now()}.mp4`);
         } finally {
             this.setState({exporting: false});
         }
+    }
+
+    private makeTimeProgress(state: TelemetryState): React.ReactNode {
+        const states = this.state.telemetryStates;
+        const startTime = states[0].time;
+        const totalDuration = states[states.length - 1].time - startTime;
+        const elapsed = state.time - startTime;
+        const fraction = totalDuration > 0 ? Math.max(0, Math.min(1, elapsed / totalDuration)) : 0;
+        return <div className={'tt-fr-time-progress'}>
+            <div className={'tt-fr-time-progress-bar'} style={{width: `${(fraction * 100).toFixed(2)}%`}}/>
+            <span className={'tt-fr-time-progress-label'}>
+                t = {elapsed.toFixed(3)} s / {totalDuration.toFixed(3)} s
+            </span>
+        </div>;
     }
 
     private makeMeter(config: MeterConfig): GaugeProps {
