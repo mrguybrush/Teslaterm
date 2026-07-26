@@ -14,6 +14,7 @@ import {
 import {TTComponent} from "../../TTComponent";
 import {ControlledDraw, ControlledDrawProps, DrawCommand} from "./ControlledDraw";
 import {MediaProgress} from "./MediaProgress";
+import {applyRangeOverride} from "./RangeOverride";
 import {ScopeSettings} from "./ScopeSettings";
 import {ScopeStatistics} from "./ScopeStatistics";
 import {NUM_VERTICAL_DIVS, OscilloscopeTrace, TraceConfig} from "./Trace";
@@ -51,7 +52,9 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
     public componentDidMount() {
         const channels = getToRenderIPCPerCoil(this.props.coil);
         this.addIPCListener(channels.scope.configure, (cfg: ScopeTraceConfig) => {
-            this.setState((state) => Oscilloscope.configure(state.traces, this.applyRangeOverride(cfg)));
+            this.setState(
+                (state) => Oscilloscope.configure(state.traces, applyRangeOverride(cfg, this.props.voltagePhases)),
+            );
         });
         this.addIPCListener(channels.scope.addValues, (values: ScopeValues) => {
             this.setState((state) => Oscilloscope.addScopeValues(state.traces, values));
@@ -73,23 +76,6 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.scope.redrawMedia, (data: MediaState) => {
             this.setState({media: data});
         });
-    }
-
-    private applyRangeOverride(cfg: ScopeTraceConfig): ScopeTraceConfig {
-        if (cfg.unit === 'V' && this.props.voltagePhases) {
-            const max = this.props.voltagePhases === 3 ? 600 : 350;
-            return {...cfg, max, min: 0};
-        }
-        if (cfg.unit === 'kW') {
-            // 1 kW/div instead of the firmware's theoretical-max-derived scale, which is far
-            // too coarse for the power levels this coil actually draws.
-            return {...cfg, max: 10, min: 0};
-        }
-        if (cfg.unit === 'kHz') {
-            // 10 kHz/div instead of the firmware's default 50 kHz/div.
-            return {...cfg, max: 100, min: 0};
-        }
-        return cfg;
     }
 
     public render(): React.ReactNode {

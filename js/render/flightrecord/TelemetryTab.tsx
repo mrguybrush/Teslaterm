@@ -4,6 +4,7 @@ import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
 import {MeterConfig} from "../../common/IPCConstantsToRenderer";
 import {FRDisplayData} from "../connect/ConnectScreen";
 import {Gauge, GaugeProps} from "../control/gauges/Gauge";
+import {applyRangeOverride} from "../control/scope/RangeOverride";
 import {ScopeSettings} from "../control/scope/ScopeSettings";
 import {ScopeStatistics} from "../control/scope/ScopeStatistics";
 import {OscilloscopeTrace, TraceConfig, TraceStats} from "../control/scope/Trace";
@@ -13,6 +14,7 @@ import {TTComponent} from "../TTComponent";
 
 export interface TelemetryTabProps {
     events: FRDisplayData;
+    voltagePhases: number;
 }
 
 interface TelemetryState {
@@ -45,7 +47,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         ];
         const chartStates: ChartState[][] = [
             this.props.events.initial.traceConfigs.map(cfg => ({
-                config: new TraceConfig(cfg),
+                config: new TraceConfig(applyRangeOverride(cfg, this.props.voltagePhases)),
                 currentValue: 0,
                 firstIndexOfLine: 0,
             })),
@@ -79,7 +81,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 case TelemetryEvent.CHART_CONF:
                 case TelemetryEvent.CHART32_CONF:
                     nextChartStates[frame.config.id] = {
-                        config: new TraceConfig(frame.config),
+                        config: new TraceConfig(applyRangeOverride(frame.config, this.props.voltagePhases)),
                         currentValue: 0,
                         firstIndexOfLine: chartStates.length,
                     };

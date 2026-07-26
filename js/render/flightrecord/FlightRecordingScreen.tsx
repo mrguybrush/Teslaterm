@@ -8,6 +8,7 @@ import {TelemetryTab} from "./TelemetryTab";
 
 export interface FRScreenProps {
     events: FRDisplayData;
+    voltagePhases: number;
     close: () => any;
 }
 
@@ -48,7 +49,10 @@ export class FlightRecordingScreen extends TTComponent<FRScreenProps, FRScreenSt
                                     <EventListTab events={this.state.eventsForList}/>
                                 </Tab.Pane>
                                 <Tab.Pane eventKey="telemetry">
-                                    <TelemetryTab events={this.props.events}/>
+                                    <TelemetryTab
+                                        events={this.props.events}
+                                        voltagePhases={this.props.voltagePhases}
+                                    />
                                 </Tab.Pane>
                             </Tab.Content>
                         </Row>

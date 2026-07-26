@@ -91,6 +91,7 @@ export class App extends TTComponent<{}, TopLevelState> {
         } else if (this.state.screen === TopScreen.flight_recording) {
             return <FlightRecordingScreen
                 events={this.state.flightEvents}
+                voltagePhases={this.state.config.voltagePhases}
                 close={() => this.setState({screen: this.state.screenBeforeRecording})}
             />;
         } else if (this.state.screen === TopScreen.flight_sessions) {
