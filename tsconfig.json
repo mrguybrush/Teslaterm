@@ -17,6 +17,7 @@
       "scripthost"
     ],
     "esModuleInterop": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "skipLibCheck": true
   }
 }

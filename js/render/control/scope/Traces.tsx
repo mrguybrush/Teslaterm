@@ -17,7 +17,7 @@ export class Traces extends CanvasComponent<TraceProps, {}> {
         }
     }
 
-    private static drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    public static drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
         ctx.lineWidth = 1;
         ctx.strokeStyle = scopeColors.gridLine;
         ctx.beginPath();
@@ -37,7 +37,7 @@ export class Traces extends CanvasComponent<TraceProps, {}> {
 
     }
 
-    private static drawTrace(
+    public static drawTrace(
         config: TraceConfig, data: number[], ctx: CanvasRenderingContext2D, width: number, height: number
     ) {
         ctx.strokeStyle = config.wavecolor;

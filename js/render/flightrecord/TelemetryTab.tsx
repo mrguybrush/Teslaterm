@@ -1,4 +1,5 @@
 import React from "react";
+import {Button} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
 import {MeterConfig} from "../../common/IPCConstantsToRenderer";
@@ -11,6 +12,7 @@ import {OscilloscopeTrace, TraceConfig, TraceStats} from "../control/scope/Trace
 import {Traces} from "../control/scope/Traces";
 import {SimpleSliderFixedTitle} from "../control/sliders/SimpleSlider";
 import {TTComponent} from "../TTComponent";
+import {downloadBlob, exportTelemetryVideo, VideoExportState} from "./VideoExport";
 
 export interface TelemetryTabProps {
     events: FRDisplayData;
@@ -33,6 +35,8 @@ export interface TelemetryTabState {
     lastIndexToShow: number;
     telemetryStates: TelemetryState[];
     chartStates: ChartState[][];
+    exporting: boolean;
+    exportProgress: number;
 }
 
 export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabState> {
@@ -116,6 +120,8 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         }
         this.state = {
             chartStates,
+            exportProgress: 0,
+            exporting: false,
             lastIndexToShow: 0,
             telemetryStates: states,
         };
@@ -138,6 +144,16 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                         visuallyEnabled={true}
                         disabled={false}
                     />
+                    <Button
+                        variant={'secondary'}
+                        size={'sm'}
+                        disabled={this.state.exporting}
+                        onClick={() => this.exportVideo()}
+                    >
+                        {this.state.exporting
+                            ? `Exporting… ${Math.round(this.state.exportProgress * 100)}%`
+                            : 'Export as video'}
+                    </Button>
                 </div>
                 <div className='tt-fr-telemetry-display'>
                     <div className={'tt-fr-scope'}>
@@ -156,6 +172,47 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 </div>
             </div>
         );
+    }
+
+    private async exportVideo() {
+        const states = this.state.telemetryStates;
+        if (states.length === 0 || this.state.exporting) {
+            return;
+        }
+        // `.time` on each state isn't a 0-based duration - it's relative to the recording's own
+        // (possibly negative) time origin, so the actual length is last-minus-first, and mapping
+        // "seconds since export started" onto a state requires re-adding that same start offset.
+        const startTime = states[0].time;
+        const totalDurationSeconds = states[states.length - 1].time - startTime;
+        let cursor = 0;
+        let cachedCursor = -1;
+        let cachedTraces: OscilloscopeTrace[] = [];
+        const stateAtTime = (seconds: number): VideoExportState => {
+            const targetTime = startTime + seconds;
+            while (cursor < states.length - 1 && states[cursor + 1].time <= targetTime) {
+                cursor++;
+            }
+            const telemetryState = states[cursor];
+            // Rebuilding every trace's sample array is expensive - only do it when the
+            // underlying telemetry state actually advanced, not on every video frame.
+            if (cursor !== cachedCursor) {
+                cachedTraces = this.state.chartStates[telemetryState.chartStateIndex].map(
+                    (_, i) => this.makeTraceAt(telemetryState.chartStateIndex, i),
+                );
+                cachedCursor = cursor;
+            }
+            return {gauges: telemetryState.gauges, time: telemetryState.time, traces: cachedTraces};
+        };
+        this.setState({exportProgress: 0, exporting: true});
+        try {
+            const blob = await exportTelemetryVideo(
+                {stateAtTime, totalDurationSeconds},
+                (fraction) => this.setState({exportProgress: fraction}),
+            );
+            downloadBlob(blob, `flight-recording-${Date.now()}.webm`);
+        } finally {
+            this.setState({exporting: false});
+        }
     }
 
     private makeMeter(config: MeterConfig): GaugeProps {
