@@ -36,7 +36,8 @@ export function makeFlightRecorderWorker(onMessage: (msg: WorkerMessage) => any)
 export interface StoredFlightEvent {
     type: FlightEventType;
     data: string;
-    time_us: number;
+    // Absolute wall-clock time in milliseconds since the Unix epoch (Date.now()).
+    time_ms: number;
 }
 
 export interface FlightRecorderJSON {
@@ -56,11 +57,11 @@ function extractEvents(buffer: FlightRecordingBuffer): StoredFlightEvent[] {
     let i = 0;
     while (i < buffer.writeIndex) {
         const type: FlightEventType = bufferView.getUint8(i);
-        const time_us = bufferView.getUint32(i + 1);
-        const length = bufferView.getUint32(i + 5);
+        const time_ms = Number(bufferView.getBigUint64(i + 1));
+        const length = bufferView.getUint32(i + 9);
         const dataView = new Uint8Array(buffer.buffer, i + FR_HEADER_BYTES, length);
         const data = Buffer.from(dataView).toString('base64');
-        events.push({type, data, time_us});
+        events.push({type, data, time_ms});
         i += length + FR_HEADER_BYTES;
     }
     return events;

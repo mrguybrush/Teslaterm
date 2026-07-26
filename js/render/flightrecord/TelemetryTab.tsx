@@ -102,7 +102,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                     break;
             }
             if (newGaugeProps) {
-                const now = (event.time - endTime) / 1e6;
+                const now = (event.time - endTime) / 1e3;
                 if (now - oldState.time > minTimeDelt) {
                     states.push({
                         chartStateIndex: chartStates.length - 1,

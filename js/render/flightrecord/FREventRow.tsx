@@ -13,7 +13,7 @@ export class FREventRow extends TTComponent<EventSelectorProps, {}> {
     }
 
     public render() {
-        const time = ((this.props.event.time - this.props.endTime) / 1e6).toFixed(4);
+        const time = ((this.props.event.time - this.props.endTime) / 1e3).toFixed(4);
         const direction = this.props.event.toUD3 ? 'TT \u2192 UD3' : 'UD3 \u2192 TT';
         let descElement: React.JSX.Element;
         if (this.props.event.type === FRDisplayEventType.terminal_data) {

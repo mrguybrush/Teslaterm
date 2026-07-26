@@ -18,7 +18,9 @@ export enum FlightEventType {
 export interface FlightRecordingBuffer {
     // Event format:
     // type: 1 byte/FlightEventType
-    // time: 4 bytes/u32
+    // time: 8 bytes/u64 - absolute wall-clock time in milliseconds since the Unix epoch
+    //       (i.e. Date.now()), not relative to the recording. Needs the full 8 bytes since
+    //       Date.now() values don't fit in 32 bits.
     // dataLength: 4 bytes/u32
     // data: dataLength bytes/u8[]
     buffer: SharedArrayBuffer;
@@ -26,7 +28,7 @@ export interface FlightRecordingBuffer {
     initialMeterConfig: FRMeterConfigs;
     writeIndex: number;
 }
-export const FR_HEADER_BYTES = 1 + 4 + 4;
+export const FR_HEADER_BYTES = 1 + 8 + 4;
 
 export enum FRDisplayEventType {
     terminal_data,

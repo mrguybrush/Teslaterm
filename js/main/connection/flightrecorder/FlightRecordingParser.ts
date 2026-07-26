@@ -32,7 +32,7 @@ export async function parseEventsFromFile(zipData: Buffer): Promise<[FlightRecor
     return [
         jsonData.events.map(stored => ({
             data: Buffer.from(stored.data, 'base64'),
-            time_us: stored.time_us,
+            time_ms: stored.time_ms,
             type: stored.type,
         })),
         {
@@ -66,7 +66,7 @@ export function parseMINEvents(flightEvents: FlightRecorderEvent[]): MINFlightEv
             if (maybeFrame) {
                 minEvents.push({
                     frame: maybeFrame,
-                    time: flightEvent.time_us,
+                    time: flightEvent.time_ms,
                     toUD3: flightEvent.type === FlightEventType.data_to_ud3,
                 });
             }
@@ -228,7 +228,7 @@ async function main() {
     for (const displayEvent of displayEvents) {
         let msg = 'MIN message ';
         msg += displayEvent.toUD3 ? '  to' : 'from';
-        let time = ((displayEvent.time - endTime ) / 1e6).toFixed(4);
+        let time = ((displayEvent.time - endTime ) / 1e3).toFixed(4);
         while (time.length < 10) {
             time = ' ' + time;
         }

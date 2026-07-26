@@ -9,7 +9,6 @@ import {
 } from "../../../common/FlightRecorderTypes";
 import {ToastSeverity} from "../../../common/IPCConstantsToRenderer";
 import {ipcs} from "../../ipc/IPCProvider";
-import * as microtime from "../../microtime";
 import {getOptionalUD3Connection} from "../connection";
 import {isExportDoneMessage, makeFlightRecorderWorker, WorkerMessage} from "./FlightRecordingWorker";
 import {addSessionToIndex, ensureSessionsDir, SESSIONS_DIR} from "./SessionIndex";
@@ -17,7 +16,9 @@ import {addSessionToIndex, ensureSessionsDir, SESSIONS_DIR} from "./SessionIndex
 export interface FlightRecorderEvent {
     type: FlightEventType;
     data: Uint8Array;
-    time_us: number;
+    // Absolute wall-clock time in milliseconds since the Unix epoch (Date.now()), not relative to
+    // the recording.
+    time_ms: number;
 }
 
 const MAX_STORED_BYTES = 5e6;
@@ -39,8 +40,8 @@ function addEventTo(buffer: FlightRecordingBuffer, type: FlightEventType, data: 
     }
     const bufferView = new DataView(buffer.buffer, buffer.writeIndex, totalBytes);
     bufferView.setUint8(0, type);
-    bufferView.setUint32(1, microtime.nowRelative());
-    bufferView.setUint32(5, data.length);
+    bufferView.setBigUint64(1, BigInt(Date.now()));
+    bufferView.setUint32(9, data.length);
     for (let i = 0; i < data.length; ++i) {
         bufferView.setUint8(FR_HEADER_BYTES + i, data[i]);
     }
