@@ -10,6 +10,7 @@ import {ScopeSettings} from "../control/scope/ScopeSettings";
 import {ScopeStatistics} from "../control/scope/ScopeStatistics";
 import {OscilloscopeTrace, TraceConfig, TraceStats} from "../control/scope/Trace";
 import {Traces} from "../control/scope/Traces";
+import {VoltagePhaseSelect} from "../control/scope/VoltagePhaseSelect";
 import {SimpleSliderFixedTitle} from "../control/sliders/SimpleSlider";
 import {TTComponent} from "../TTComponent";
 import {downloadBlob, exportTelemetryVideo, VideoExportState} from "./VideoExport";
@@ -157,7 +158,10 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 </div>
                 <div className='tt-fr-telemetry-display'>
                     <div className={'tt-fr-scope'}>
-                        {this.makeTimeProgress(state)}
+                        <div className={'tt-scope-top-row'}>
+                            {this.makeTimeProgress(state)}
+                            <VoltagePhaseSelect voltagePhases={this.props.voltagePhases}/>
+                        </div>
                         <div className={'tt-scope-middle-row'}>
                             <Traces traces={traces}/>
                             <ScopeSettings traces={traces}/>
