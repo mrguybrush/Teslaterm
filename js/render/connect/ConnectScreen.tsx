@@ -144,6 +144,16 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                     connecting={this.props.connecting}
                     presets={this.props.config.connectionPresets}
                 />
+                <Form.Check
+                    type={'checkbox'}
+                    id={'auto-flight-recording'}
+                    label={'Automatic flight recording on TR start/stop'}
+                    checked={this.props.config.autoFlightRecording}
+                    onChange={(ev) => this.props.setAutoFlightRecording(ev.target.checked)}
+                />
+                <Button variant={'secondary'} onClick={this.props.openFlightSessions}>
+                    Flight Sessions...
+                </Button>
                 <Button variant={'primary'} onClick={() => this.setState({showingSettings: true})}>
                     Settings
                 </Button>
@@ -203,16 +213,6 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
     private makeAppSettings() {
         const otherMode = this.props.config.darkMode ? 'light' : 'dark';
         return <div className={'tt-app-settings'}>
-            <Form.Check
-                type={'checkbox'}
-                id={'auto-flight-recording'}
-                label={'Automatic flight recording on TR start/stop'}
-                checked={this.props.config.autoFlightRecording}
-                onChange={(ev) => this.props.setAutoFlightRecording(ev.target.checked)}
-            />
-            <Button variant={'secondary'} onClick={this.props.openFlightSessions}>
-                Flight Sessions...
-            </Button>
             <Button
                 variant={this.state.windowSizeJustSaved ? 'success' : 'secondary'}
                 onClick={() => this.saveCurrentWindowSize()}
