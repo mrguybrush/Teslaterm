@@ -1,6 +1,7 @@
 import React from "react";
 import {CloseButton, Nav, Tab} from "react-bootstrap";
 import {CoilID} from "../../../common/constants";
+import {IPC_CONSTANTS_TO_MAIN} from "../../../common/IPCConstantsToMain";
 import {MediaFileType, PlayerActivity} from "../../../common/MediaTypes";
 import {
     getToRenderIPCPerCoil,
@@ -11,6 +12,7 @@ import {
     ScopeTraceConfig,
     ScopeValues,
 } from "../../../common/IPCConstantsToRenderer";
+import {processIPC} from "../../ipc/IPCProvider";
 import {TTComponent} from "../../TTComponent";
 import {ControlledDraw, ControlledDrawProps, DrawCommand} from "./ControlledDraw";
 import {MediaProgress} from "./MediaProgress";
@@ -155,7 +157,10 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
     private makeMainScope(): React.JSX.Element {
         const realTraces = this.state.traces.filter(t => t !== undefined);
         return <div className={'tt-scope'}>
-            <MediaProgress {...this.state.media}/>
+            <div className={'tt-scope-top-row'}>
+                <MediaProgress {...this.state.media}/>
+                {this.makeVoltagePhaseToggle()}
+            </div>
             <div className={'tt-scope-middle-row'}>
                 <Traces traces={realTraces}/>
                 <ScopeSettings traces={realTraces}/>
@@ -164,6 +169,27 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
                 traces={realTraces}
                 clearStats={() => this.setState({traces: this.state.traces.map((t) => t && t.withClearedStats())})}
             />
+        </div>;
+    }
+
+    private makeVoltagePhaseToggle(): React.JSX.Element {
+        const current = this.props.voltagePhases || 1;
+        const setPhases = (phases: number) => processIPC.send(IPC_CONSTANTS_TO_MAIN.setVoltagePhases, phases);
+        return <div className={'tt-scope-phase-toggle'}>
+            <button
+                type={'button'}
+                className={'btn btn-sm ' + (current === 1 ? 'btn-primary' : 'btn-secondary')}
+                onClick={() => setPhases(1)}
+            >
+                1-phase
+            </button>
+            <button
+                type={'button'}
+                className={'btn btn-sm ' + (current === 3 ? 'btn-primary' : 'btn-secondary')}
+                onClick={() => setPhases(3)}
+            >
+                3-phase
+            </button>
         </div>;
     }
 

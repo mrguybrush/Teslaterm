@@ -2,8 +2,29 @@
     height: 100%;
     background: var(--bs-body-bg);
     display: grid;
-    grid-template-rows: 20px calc(100% - 46px) 26px;
+    grid-template-rows: 26px calc(100% - 52px) 26px;
     grid-template-columns: 100%;
+}
+
+.tt-scope-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 26px;
+    overflow: hidden;
+}
+
+.tt-scope-phase-toggle {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.tt-scope-phase-toggle > .btn {
+    padding: 0 8px;
+    font-size: 12px;
+    line-height: 22px;
 }
 
 .tt-fr-scope {
