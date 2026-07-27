@@ -8,7 +8,7 @@ import {MINReceiver, ReceivedMINFrame} from "../../min/MINReceiver";
 import {TelemetryChannel} from "../telemetry/TelemetryChannel";
 import {EVENT_GET_INFO, parseEventInfo, SYNTH_CMD_FLUSH, UD3MinIDs} from "../types/UD3MINConstants";
 import {FlightRecorderEvent} from "./FlightRecorder";
-import {FlightRecorderJSON} from "./FlightRecordingWorker";
+import {FlightRecorderJSON, StoredFlightEvent} from "./FlightRecordingWorker";
 
 export interface MINFlightEvent {
     frame: ReceivedMINFrame;
@@ -24,6 +24,18 @@ function arrayOrEmpty(objectOrArray) {
     }
 }
 
+// Recordings made before time_ms existed only have the legacy time_us field (a relative
+// microsecond value). Converting it to the same millisecond scale lets old files still load and
+// play back, though its absolute value is meaningless (and, for very old files, may already be
+// corrupted by the 32-bit overflow that time_ms was introduced to fix) - only relative deltas
+// within such a file are still usable.
+function eventTimeMs(stored: StoredFlightEvent): number {
+    if (stored.time_ms !== undefined) {
+        return stored.time_ms;
+    }
+    return stored.time_us / 1000;
+}
+
 export async function parseEventsFromFile(zipData: Buffer): Promise<[FlightRecorderEvent[], InitialFRState]> {
     const zip = await JSZip.loadAsync(zipData);
     const dataFile = zip.file('data.json');
@@ -32,7 +44,7 @@ export async function parseEventsFromFile(zipData: Buffer): Promise<[FlightRecor
     return [
         jsonData.events.map(stored => ({
             data: Buffer.from(stored.data, 'base64'),
-            time_ms: stored.time_ms,
+            time_ms: eventTimeMs(stored),
             type: stored.type,
         })),
         {

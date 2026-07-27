@@ -36,8 +36,14 @@ export function makeFlightRecorderWorker(onMessage: (msg: WorkerMessage) => any)
 export interface StoredFlightEvent {
     type: FlightEventType;
     data: string;
-    // Absolute wall-clock time in milliseconds since the Unix epoch (Date.now()).
-    time_ms: number;
+    // Absolute wall-clock time in milliseconds since the Unix epoch (Date.now()). Written by the
+    // current format; not present in .zip files recorded before this was introduced.
+    time_ms?: number;
+    // Legacy field from recordings made before time_ms existed: a relative microsecond value
+    // (either raw hrtime-since-boot, or app-start-relative for a brief in-between version). Kept
+    // only so parseEventsFromFile() can still load old files - see the compatibility handling
+    // there.
+    time_us?: number;
 }
 
 export interface FlightRecorderJSON {
