@@ -9,7 +9,11 @@ const CANVAS_HEIGHT = 540;
 // The recording itself only has a handful of samples per second anyway, so a higher video frame
 // rate wouldn't show anything new - keep it low to keep encoding (and thus export) fast.
 const FPS = 10;
-const VIDEO_BITRATE = 2_000_000;
+// Quality doesn't matter much here (it's a line chart, not video footage), so bias hard towards
+// small file size: a low bitrate plus infrequent keyframes let H.264's inter-frame compression do
+// most of the work, since consecutive frames of a slowly-moving chart are mostly identical.
+const VIDEO_BITRATE = 250_000;
+const KEYFRAME_INTERVAL_FRAMES = FPS * 3;
 const SCOPE_HEIGHT = 380;
 const LEGEND_WIDTH = 220;
 const TOP_MARGIN = 36;
@@ -118,9 +122,7 @@ export async function exportTelemetryVideo(
             duration: Math.round(frameIntervalSeconds * 1e6),
             timestamp: timestampMicros,
         });
-        // Every frame is a keyframe: at this frame rate/resolution the size cost is negligible,
-        // and it avoids any inter-frame reference bugs entirely.
-        videoEncoder.encode(frame, {keyFrame: true});
+        videoEncoder.encode(frame, {keyFrame: i % KEYFRAME_INTERVAL_FRAMES === 0});
         frame.close();
         onProgress((i + 1) / totalFrames);
 
