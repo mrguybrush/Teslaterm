@@ -1,4 +1,5 @@
 import {ScopeTraceConfig} from "../../../common/IPCConstantsToRenderer";
+import {NUM_VERTICAL_DIVS} from "./Trace";
 
 // Shared between the live Oscilloscope and the flight-recording playback Telemetry tab, so both
 // show scope traces at the same (more useful than the firmware's raw defaults) scale.
@@ -17,4 +18,12 @@ export function applyRangeOverride(cfg: ScopeTraceConfig, voltagePhases: number 
         return {...cfg, max: 100, min: 0};
     }
     return cfg;
+}
+
+// Voltage is the only override that depends on a value (voltagePhases) that can change live after
+// a trace was already configured, so already-built TraceConfigs need to be able to pick up a new
+// per-div scale without a fresh ScopeTraceConfig from the firmware.
+export function voltagePerDivFor(voltagePhases: number | undefined): number {
+    const max = voltagePhases === 3 ? 600 : 350;
+    return max / NUM_VERTICAL_DIVS;
 }

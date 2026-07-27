@@ -14,7 +14,7 @@ import {
 import {TTComponent} from "../../TTComponent";
 import {ControlledDraw, ControlledDrawProps, DrawCommand} from "./ControlledDraw";
 import {MediaProgress} from "./MediaProgress";
-import {applyRangeOverride} from "./RangeOverride";
+import {applyRangeOverride, voltagePerDivFor} from "./RangeOverride";
 import {ScopeSettings} from "./ScopeSettings";
 import {ScopeStatistics} from "./ScopeStatistics";
 import {NUM_VERTICAL_DIVS, OscilloscopeTrace, TraceConfig} from "./Trace";
@@ -77,6 +77,18 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.scope.redrawMedia, (data: MediaState) => {
             this.setState({media: data});
         });
+    }
+
+    public componentDidUpdate(prevProps: OscilloscopeProps) {
+        // Traces are configured once from a firmware CHART_CONF event and cached from then on, so
+        // changing the voltage phase setting afterwards wouldn't otherwise be reflected until the
+        // firmware happens to resend that config - rescale already-built voltage traces directly.
+        if (prevProps.voltagePhases !== this.props.voltagePhases) {
+            const newPerDiv = voltagePerDivFor(this.props.voltagePhases);
+            this.setState((state) => ({
+                traces: state.traces.map((t) => (t && t.config.unit === 'V') ? t.withCfg(t.config.withPerDiv(newPerDiv)) : t),
+            }));
+        }
     }
 
     public render(): React.ReactNode {

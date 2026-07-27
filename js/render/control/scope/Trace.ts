@@ -22,6 +22,14 @@ export class TraceConfig {
         this.visualOffset = cfg.offset;
         this.divider = cfg.div;
     }
+
+    // Used to rescale an already-built config (e.g. when the voltage phase setting changes) - no
+    // fresh ScopeTraceConfig from the firmware is available at that point, and the other fields
+    // stay the same regardless.
+    public withPerDiv(newPerDiv: number): TraceConfig {
+        const clone = Object.create(TraceConfig.prototype) as TraceConfig;
+        return Object.assign(clone, this, {perDiv: newPerDiv});
+    }
 }
 
 export class TraceStats {

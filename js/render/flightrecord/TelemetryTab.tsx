@@ -5,7 +5,7 @@ import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
 import {MeterConfig} from "../../common/IPCConstantsToRenderer";
 import {FRDisplayData} from "../connect/ConnectScreen";
 import {Gauge, GaugeProps} from "../control/gauges/Gauge";
-import {applyRangeOverride} from "../control/scope/RangeOverride";
+import {applyRangeOverride, voltagePerDivFor} from "../control/scope/RangeOverride";
 import {ScopeSettings} from "../control/scope/ScopeSettings";
 import {ScopeStatistics} from "../control/scope/ScopeStatistics";
 import {OscilloscopeTrace, TraceConfig, TraceStats} from "../control/scope/Trace";
@@ -126,6 +126,21 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
             lastIndexToShow: 0,
             telemetryStates: states,
         };
+    }
+
+    public componentDidUpdate(prevProps: TelemetryTabProps) {
+        // All chartStates snapshots were built once from initial.traceConfigs/CHART_CONF events
+        // using whatever voltagePhases was current at construction time - rescale every voltage
+        // trace's cached config now, not just whichever snapshot happens to be visible, since the
+        // slider can jump to any of them.
+        if (prevProps.voltagePhases !== this.props.voltagePhases) {
+            const newPerDiv = voltagePerDivFor(this.props.voltagePhases);
+            this.setState((state) => ({
+                chartStates: state.chartStates.map((snapshot) => snapshot.map((cs) => (
+                    cs && cs.config.unit === 'V' ? {...cs, config: cs.config.withPerDiv(newPerDiv)} : cs
+                ))),
+            }));
+        }
     }
 
     public render() {
