@@ -8,6 +8,7 @@ import {
     MidiPlayerState,
     MidiPlaylistEntry,
     MidiPolyphonyClass,
+    MidiSimplifyAlgorithm,
 } from "../../common/MidiPlaylistTypes";
 import {MidiPreviewPlayer} from "../audio/MidiPreviewPlayer";
 import {processIPC} from "../ipc/IPCProvider";
@@ -17,6 +18,24 @@ import {formatDuration, MidiTimeline} from "./MidiTimeline";
 export interface MidiPlaylistPanelProps {
     disabled: boolean;
 }
+
+const SIMPLIFY_ALGORITHMS: Array<{ id: MidiSimplifyAlgorithm, label: string, description: string }> = [
+    {
+        description: 'Keeps only the highest-pitched note at any moment - works well when the melody is the top voice.',
+        id: 'melody-top',
+        label: 'Highest note (soprano)',
+    },
+    {
+        description: 'Keeps only the lowest-pitched note at any moment - extracts the bass line instead.',
+        id: 'melody-bottom',
+        label: 'Lowest note (bass)',
+    },
+    {
+        description: 'Keeps only the single track with the most notes, resolving any remaining chords to their top note.',
+        id: 'dominant-track',
+        label: 'Dominant track',
+    },
+];
 
 interface MidiPlaylistPanelState {
     library: MidiLibraryEntry[];
@@ -29,6 +48,7 @@ interface MidiPlaylistPanelState {
     selectedSavedPlaylist: string;
     showSaveDialog: boolean;
     saveDialogName: string;
+    simplifyTarget?: string;
 }
 
 type DragSource = 'library' | 'playlist';
@@ -45,6 +65,13 @@ interface DragState {
 // What gets loaded when a song is clicked - either a bare archive file (always the full length),
 // or a specific playlist entry (its own stored in/out range, editable and persisted back to it).
 type PlayTarget = { kind: 'archive', filename: string } | { kind: 'playlist', index: number };
+
+// A pending request for the raw bytes of a preview file - autoplay distinguishes a double-click
+// (start playing immediately once the bytes arrive) from a single click (just load it, paused).
+interface PendingPreview {
+    target: PlayTarget;
+    autoplay: boolean;
+}
 
 function stripExtension(filename: string): string {
     return filename.replace(/\.midi?$/i, '');
@@ -74,7 +101,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
     private drag: DragState | undefined;
     private dragGhostEl: HTMLDivElement | undefined;
     private hoverEl: HTMLElement | undefined;
-    private pendingPreview: PlayTarget | undefined;
+    private pendingPreview: PendingPreview | undefined;
+    private clickTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
@@ -104,18 +132,20 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             (savedPlaylists) => this.setState({savedPlaylists}),
         );
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.previewFile, ({filename, bytes}) => {
-            const target = this.pendingPreview;
+            const pending = this.pendingPreview;
+            const target = pending?.target;
             if (!target || (target.kind === 'archive' ? target.filename !== filename
                 : this.state.playlist[target.index]?.filename !== filename)) {
                 // A late response for a file we've since navigated away from.
                 return;
             }
             this.pendingPreview = undefined;
+            const method = pending.autoplay ? 'play' : 'load';
             if (target.kind === 'archive') {
-                this.previewPlayer.play(new Uint8Array(bytes), filename);
+                this.previewPlayer[method](new Uint8Array(bytes), filename);
             } else {
                 const entry = this.state.playlist[target.index];
-                this.previewPlayer.play(
+                this.previewPlayer[method](
                     new Uint8Array(bytes), filename, target.index, entry.inPointSeconds, entry.outPointSeconds,
                 );
             }
@@ -135,6 +165,9 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         super.componentWillUnmount();
         this.previewPlayer.stop();
         this.endDrag();
+        if (this.clickTimer) {
+            clearTimeout(this.clickTimer);
+        }
     }
 
     public render(): React.ReactNode {
@@ -169,6 +202,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                 {this.makePlaylistColumn()}
             </div>
             {this.makeSaveDialog()}
+            {this.makeSimplifyDialog()}
         </div>;
     }
 
@@ -183,9 +217,19 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         }
     }
 
+    // Loading (even without playing) still switches the coil's synth mode over MIDI, so it needs
+    // the same interaction-lock gating the old per-row Play button had; preview mode never touches
+    // the coil at all and stays available regardless.
+    private coilLocked(): boolean {
+        return !this.state.previewMode && this.props.disabled;
+    }
+
     private playArchiveEntry(filename: string) {
+        if (this.coilLocked()) {
+            return;
+        }
         if (this.state.previewMode) {
-            this.pendingPreview = {filename, kind: 'archive'};
+            this.pendingPreview = {autoplay: true, target: {filename, kind: 'archive'}};
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, filename);
         } else {
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playArchiveFile, filename);
@@ -194,16 +238,64 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
 
     private playPlaylistEntry(index: number) {
         const entry = this.state.playlist[index];
-        if (!entry) {
+        if (!entry || this.coilLocked()) {
             return;
         }
         if (this.state.previewMode) {
-            this.pendingPreview = {index, kind: 'playlist'};
+            this.pendingPreview = {autoplay: true, target: {index, kind: 'playlist'}};
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, entry.filename);
         } else {
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playPlaylistEntry, index);
         }
     }
+
+    // Single-click behavior: load the song so it shows in the now-playing bar, without starting
+    // playback - double-click (playArchiveEntry/playPlaylistEntry above) starts it right away.
+    private loadArchiveEntry(filename: string) {
+        if (this.coilLocked()) {
+            return;
+        }
+        if (this.state.previewMode) {
+            this.pendingPreview = {autoplay: false, target: {filename, kind: 'archive'}};
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, filename);
+        } else {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadArchiveFile, filename);
+        }
+    }
+
+    private loadPlaylistEntryOnly(index: number) {
+        const entry = this.state.playlist[index];
+        if (!entry || this.coilLocked()) {
+            return;
+        }
+        if (this.state.previewMode) {
+            this.pendingPreview = {autoplay: false, target: {index, kind: 'playlist'}};
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, entry.filename);
+        } else {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadPlaylistEntry, index);
+        }
+    }
+
+    // Standard delayed-click pattern to tell single vs. double clicks apart: a single click is
+    // only actually acted on if no second click follows within the window; a double click cancels
+    // the pending single-click action and fires immediately instead.
+    private onRowClick = (singleFn: () => void) => () => {
+        if (this.clickTimer) {
+            clearTimeout(this.clickTimer);
+        }
+        this.clickTimer = setTimeout(() => {
+            this.clickTimer = undefined;
+            singleFn();
+        }, 220);
+    };
+
+    private onRowDoubleClick = (doubleFn: () => void) => () => {
+        if (this.clickTimer) {
+            clearTimeout(this.clickTimer);
+            this.clickTimer = undefined;
+        }
+        doubleFn();
+    };
 
     private persistInOut(index: number, inPointSeconds: number, outPointSeconds: number) {
         const entry = this.state.playlist[index];
@@ -229,8 +321,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, undefined);
         const resume = () => preview ? this.previewPlayer.resume()
             : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, undefined);
-        const stop = () => preview ? this.previewPlayer.stop()
-            : processIPC.send(IPC_CONSTANTS_TO_MAIN.menu.stopMedia, undefined);
+        const stop = () => preview ? this.previewPlayer.stopToStart()
+            : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.stopToStart, undefined);
         return <div className={'tt-midi-nowplaying'}>
             <div className={'tt-midi-nowplaying-row'}>
                 <span className={'tt-midi-nowplaying-title'}>{stripExtension(ps.filename || '')}</span>
@@ -284,6 +376,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         key={entry.filename}
                         className={'tt-midi-row'}
                         onMouseDown={this.beginDrag('library', entry.filename, stripExtension(entry.filename))}
+                        onClick={this.onRowClick(() => this.loadArchiveEntry(entry.filename))}
+                        onDoubleClick={this.onRowDoubleClick(() => this.playArchiveEntry(entry.filename))}
                     >
                         {this.makeDot(entry.polyphony)}
                         <span className={'tt-midi-row-name'} title={entry.filename}>
@@ -292,23 +386,32 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         <span className={'tt-midi-row-duration'}>{formatDuration(entry.durationSeconds)}</span>
                         <Button
                             size={'sm'}
-                            variant={'primary'}
-                            disabled={!this.state.previewMode && this.props.disabled}
-                            onClick={() => this.playArchiveEntry(entry.filename)}
+                            variant={'secondary'}
+                            title={'Simplify to melody...'}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.setState({simplifyTarget: entry.filename});
+                            }}
                         >
-                            ▶
+                            ✨
                         </Button>
                         <Button
                             size={'sm'}
                             variant={'secondary'}
-                            onClick={() => this.addToPlaylist(entry)}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.addToPlaylist(entry);
+                            }}
                         >
                             +
                         </Button>
                         <Button
                             size={'sm'}
                             variant={'danger'}
-                            onClick={() => this.deleteLibraryFile(entry.filename)}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.deleteLibraryFile(entry.filename);
+                            }}
                         >
                             🗑
                         </Button>
@@ -344,6 +447,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         data-mididrop={'playlist-row'}
                         data-index={index}
                         onMouseDown={this.beginDrag('playlist', String(index), stripExtension(entry.filename))}
+                        onClick={this.onRowClick(() => this.loadPlaylistEntryOnly(index))}
+                        onDoubleClick={this.onRowDoubleClick(() => this.playPlaylistEntry(index))}
                     >
                         {libraryEntry ? this.makeDot(libraryEntry.polyphony) : <span className={'tt-midi-dot'}/>}
                         <span className={'tt-midi-row-name'} title={entry.filename}>
@@ -357,19 +462,32 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         </span>
                         <Button
                             size={'sm'}
-                            variant={'primary'}
-                            disabled={!this.state.previewMode && this.props.disabled}
-                            onClick={() => this.playPlaylistEntry(index)}
+                            variant={'secondary'}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.moveInPlaylist(index, -1);
+                            }}
                         >
-                            ▶
-                        </Button>
-                        <Button size={'sm'} variant={'secondary'} onClick={() => this.moveInPlaylist(index, -1)}>
                             ▲
                         </Button>
-                        <Button size={'sm'} variant={'secondary'} onClick={() => this.moveInPlaylist(index, 1)}>
+                        <Button
+                            size={'sm'}
+                            variant={'secondary'}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.moveInPlaylist(index, 1);
+                            }}
+                        >
                             ▼
                         </Button>
-                        <Button size={'sm'} variant={'danger'} onClick={() => this.removeFromPlaylist(index)}>
+                        <Button
+                            size={'sm'}
+                            variant={'danger'}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.removeFromPlaylist(index);
+                            }}
+                        >
                             ✕
                         </Button>
                     </div>;
@@ -433,6 +551,48 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                 <Button variant={'primary'} disabled={!name} onClick={confirm}>Save</Button>
             </Modal.Footer>
         </Modal>;
+    }
+
+    private makeSimplifyDialog() {
+        const target = this.state.simplifyTarget;
+        return <Modal show={!!target} onHide={() => this.setState({simplifyTarget: undefined})}>
+            <Modal.Header closeButton>
+                <Modal.Title>Simplify to melody</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+                <p>
+                    Reduce "{target ? stripExtension(target) : ''}" to its essential melody as a new
+                    archive entry. Choose how the notes are picked:
+                </p>
+                <div className={'tt-midi-simplify-options'}>
+                    {SIMPLIFY_ALGORITHMS.map((algo) => (
+                        <Button
+                            key={algo.id}
+                            variant={'secondary'}
+                            className={'tt-midi-simplify-option'}
+                            onClick={() => this.runSimplify(algo.id)}
+                        >
+                            <div className={'tt-midi-simplify-option-label'}>{algo.label}</div>
+                            <div className={'tt-midi-simplify-option-desc'}>{algo.description}</div>
+                        </Button>
+                    ))}
+                </div>
+            </Modal.Body>
+            <Modal.Footer>
+                <Button variant={'secondary'} onClick={() => this.setState({simplifyTarget: undefined})}>
+                    Cancel
+                </Button>
+            </Modal.Footer>
+        </Modal>;
+    }
+
+    private runSimplify(algorithm: MidiSimplifyAlgorithm) {
+        const filename = this.state.simplifyTarget;
+        if (!filename) {
+            return;
+        }
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.simplifyFile, {algorithm, filename});
+        this.setState({simplifyTarget: undefined});
     }
 
     private openSaveDialog() {

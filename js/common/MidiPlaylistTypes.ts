@@ -38,3 +38,11 @@ export interface MidiPreviewFile {
     filename: string;
     bytes: number[];
 }
+
+// Three different heuristics for reducing a (possibly chordal/multi-track) MIDI file down to a
+// single melodic line:
+// - melody-top: at every moment, keep only the highest-pitched currently-sounding note.
+// - melody-bottom: same, but keep the lowest-pitched note (extracts a bass line instead).
+// - dominant-track: keep only the single track with the most notes, collapsing any remaining
+//   chords within it to their top note.
+export type MidiSimplifyAlgorithm = 'melody-top' | 'melody-bottom' | 'dominant-track';

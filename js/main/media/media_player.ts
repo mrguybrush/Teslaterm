@@ -171,6 +171,17 @@ export class PlayerState {
         this.setState(PlayerActivity.playing);
     }
 
+    // Forces the displayed state to "paused" regardless of the current state (unlike
+    // pausePlaying(), which only acts when currently playing) - used for "stop and rewind to
+    // start" semantics where the caller has already handled the actual pause/seek side effects
+    // itself and just needs the generic bookkeeping to catch up, without re-invoking pauseCallback.
+    public forcePaused(): void {
+        if (this.currentFile === null) {
+            return;
+        }
+        this.setState(PlayerActivity.paused);
+    }
+
     public addUpdateCallback(mediaUpdateCallback: (state: PlayerActivity) => any) {
         this.listeners.push(mediaUpdateCallback);
 

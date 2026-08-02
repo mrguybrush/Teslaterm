@@ -2,6 +2,7 @@ import {dialog} from "electron";
 import * as fs from "fs";
 import {DroppedFile, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
+import {MidiSimplifyAlgorithm} from "../../common/MidiPlaylistTypes";
 import {
     deleteMidiFile,
     deleteSavedPlaylist,
@@ -12,9 +13,11 @@ import {
     listSavedPlaylists,
     loadSavedPlaylist,
     savePlaylistAs,
+    saveSimplifiedVariant,
     setPlaylist,
 } from "../media/MidiLibrary";
 import {loadMediaFile, media_state, onSongEnded} from "../media/media_player";
+import {simplifyMidiFile} from "../media/MidiSimplify";
 import {
     getMidiPlayerState,
     getPlaybackSourcePlaylistIndex,
@@ -22,6 +25,7 @@ import {
     setInPoint,
     setOutPoint,
     setPlaybackSourcePlaylistIndex,
+    stopToStartMidiFile,
 } from "../midi/midi";
 import {mainWindow} from "../main_electron";
 import {MainIPC} from "./IPCProvider";
@@ -51,8 +55,17 @@ export class MidiPlaylistIPC {
             IPC_CONSTANTS_TO_MAIN.midiPlaylist.playPlaylistEntry,
             (index) => this.playPlaylistEntry(index),
         );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadArchiveFile,
+            (filename) => this.loadArchiveFileOnly(filename),
+        );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadPlaylistEntry,
+            (index) => this.loadPlaylistEntryOnly(index),
+        );
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, () => media_state.pausePlaying());
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, () => media_state.resumePlaying());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.stopToStart, () => stopToStartMidiFile());
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, (seconds) => seekMidi(seconds));
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, (seconds) => {
             setInPoint(seconds);
@@ -78,6 +91,10 @@ export class MidiPlaylistIPC {
         processIPC.onAsync(
             IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile,
             (filename) => this.sendPreviewFile(filename),
+        );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.simplifyFile,
+            ({filename, algorithm}) => this.simplifyFile(filename, algorithm),
         );
         onSongEnded(() => this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, undefined));
     }
@@ -142,6 +159,41 @@ export class MidiPlaylistIPC {
         const file: DroppedFile = {bytes: [...new Uint8Array(bytes)], name: filename, path: filePath};
         await loadMediaFile(file);
         await media_state.startPlaying();
+    }
+
+    // Loads a file into the player and shows it in the now-playing bar without actually starting
+    // playback (single-click behavior) - loadMediaFile() alone leaves the generic PlayerActivity
+    // wherever it was before (often idle, which would hide the bar), so force it to "paused".
+    private async loadOnly(filename: string) {
+        const filePath = getMidiFilePath(filename);
+        const bytes = await fs.promises.readFile(filePath);
+        const file: DroppedFile = {bytes: [...new Uint8Array(bytes)], name: filename, path: filePath};
+        await loadMediaFile(file);
+        media_state.forcePaused();
+    }
+
+    private async loadArchiveFileOnly(filename: string) {
+        await this.loadOnly(filename);
+        setPlaybackSourcePlaylistIndex(undefined);
+    }
+
+    private async loadPlaylistEntryOnly(index: number) {
+        const entry = listPlaylist()[index];
+        if (!entry) {
+            return;
+        }
+        await this.loadOnly(entry.filename);
+        setInPoint(entry.inPointSeconds);
+        setOutPoint(entry.outPointSeconds);
+        setPlaybackSourcePlaylistIndex(index);
+        seekMidi(entry.inPointSeconds);
+    }
+
+    private async simplifyFile(filename: string, algorithm: MidiSimplifyAlgorithm) {
+        const bytes = await fs.promises.readFile(getMidiFilePath(filename));
+        const simplified = simplifyMidiFile(new Uint8Array(bytes), algorithm);
+        saveSimplifiedVariant(filename, algorithm, simplified);
+        this.sendLibrary();
     }
 
     // Live in/out edits only have somewhere to persist to when the currently loaded file was

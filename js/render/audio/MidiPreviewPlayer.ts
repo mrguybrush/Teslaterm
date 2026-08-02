@@ -134,6 +134,34 @@ export class MidiPreviewPlayer {
         initialInPoint?: number,
         initialOutPoint?: number,
     ) {
+        this.loadInternal(bytes, filename, sourcePlaylistIndex, initialInPoint, initialOutPoint);
+        this.player.play();
+        this.playbackState = MidiPlaybackState.playing;
+        this.startPolling();
+        this.emitState();
+    }
+
+    // Loads a file and shows it as the current song (paused, at the in point) without starting
+    // playback - used for single-click "just show it up top" row selection.
+    public load(
+        bytes: Uint8Array,
+        filename: string,
+        sourcePlaylistIndex?: number,
+        initialInPoint?: number,
+        initialOutPoint?: number,
+    ) {
+        this.loadInternal(bytes, filename, sourcePlaylistIndex, initialInPoint, initialOutPoint);
+        this.playbackState = MidiPlaybackState.paused;
+        this.emitState();
+    }
+
+    private loadInternal(
+        bytes: Uint8Array,
+        filename: string,
+        sourcePlaylistIndex?: number,
+        initialInPoint?: number,
+        initialOutPoint?: number,
+    ) {
         this.teardown();
         this.player = new MidiPlayer.Player((event) => this.handleEvent(event));
         (this.player as any).defaultTempo = 120;
@@ -145,10 +173,6 @@ export class MidiPreviewPlayer {
         this.outPointSeconds = Math.min(this.durationSeconds, Math.max(initialOutPoint ?? this.durationSeconds, this.inPointSeconds));
         this.player.on('endOfFile', () => this.handleEndOfFile());
         this.player.skipToSeconds(this.inPointSeconds);
-        this.player.play();
-        this.playbackState = MidiPlaybackState.playing;
-        this.startPolling();
-        this.emitState();
     }
 
     public pause() {
@@ -176,6 +200,19 @@ export class MidiPreviewPlayer {
         }
         this.teardown();
         this.playbackState = MidiPlaybackState.stopped;
+        this.emitState();
+    }
+
+    // Rewinds to the start of the trim range and silences output, but keeps the file loaded
+    // (paused rather than stopped) so the now-playing bar keeps showing it.
+    public stopToStart() {
+        if (!this.player) {
+            return;
+        }
+        this.stopPolling();
+        this.synth.stopAll();
+        this.player.skipToSeconds(this.inPointSeconds);
+        this.playbackState = MidiPlaybackState.paused;
         this.emitState();
     }
 

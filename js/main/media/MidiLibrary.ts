@@ -16,7 +16,7 @@ function ensureDir() {
 
 // midi-player-js's getEvents() is documented as Event[] but actually returns one array of events
 // per track, so it needs flattening before use.
-function fixBrokenArray<T>(reallyTwoDimArray: T[]): T[] {
+export function fixBrokenArray<T>(reallyTwoDimArray: T[]): T[] {
     const result: T[] = [];
     for (const subarray of reallyTwoDimArray) {
         result.push(...(subarray as unknown as T[]));
@@ -157,6 +157,26 @@ export function importMidiFile(sourcePath: string): string {
         counter++;
     }
     fs.copyFileSync(sourcePath, target);
+    const index = readLibraryIndex();
+    analyzeAndCache(filename, index);
+    writeLibraryIndex(index);
+    return filename;
+}
+
+export function saveSimplifiedVariant(originalFilename: string, algorithm: string, bytes: Uint8Array): string {
+    ensureDir();
+    const ext = path.extname(originalFilename);
+    const base = path.basename(originalFilename, ext);
+    const suffix = `_simplified-${algorithm}`;
+    let filename = base + suffix + ext;
+    let target = path.join(MIDI_DIR, filename);
+    let counter = 1;
+    while (fs.existsSync(target)) {
+        filename = `${base}${suffix}_${counter}${ext}`;
+        target = path.join(MIDI_DIR, filename);
+        counter++;
+    }
+    fs.writeFileSync(target, bytes);
     const index = readLibraryIndex();
     analyzeAndCache(filename, index);
     writeLibraryIndex(index);

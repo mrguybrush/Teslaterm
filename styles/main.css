@@ -289,6 +289,27 @@
     outline-offset: -2px;
 }
 
+.tt-midi-simplify-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.tt-midi-simplify-option {
+    text-align: left;
+    white-space: normal;
+}
+
+.tt-midi-simplify-option-label {
+    font-weight: bold;
+}
+
+.tt-midi-simplify-option-desc {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    font-weight: normal;
+}
+
 .tt-freq-panel {
     flex: 1 1 auto;
     min-height: 0;

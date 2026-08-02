@@ -101,6 +101,19 @@ export function resumeCurrentMidiFile() {
     ipcs.misc.updateMediaInfo();
 }
 
+// Rewinds to the start of the trim range and silences output, but keeps the file "loaded" (paused
+// rather than idle) so the renderer's now-playing bar keeps showing it instead of reverting to
+// "nothing loaded".
+export function stopToStartMidiFile() {
+    stopMidiOutput();
+    if (player.isPlaying()) {
+        player.pause();
+    }
+    player.skipToSeconds(inPointSeconds);
+    media_state.forcePaused();
+    ipcs.misc.updateMediaInfo();
+}
+
 /** Seeks the currently loaded MIDI file, keeping playback going if it was already playing. */
 export function seekMidi(seconds: number) {
     const clamped = Math.max(0, Math.min(seconds, currentDurationSeconds));
