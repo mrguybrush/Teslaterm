@@ -1,4 +1,5 @@
 import * as MidiPlayer from "midi-player-js";
+import {MidiPlaybackState, MidiPlayerState} from "../../common/MidiPlaylistTypes";
 
 // Real "singing" Tesla coils make sound by gating the spark on/off at audio rate, which produces
 // a harsh, buzzy tone close to a square/pulse wave rather than anything resembling a sampled
@@ -89,28 +90,122 @@ class CoilSynth {
     }
 }
 
+const EMPTY_STATE: MidiPlayerState = {
+    durationSeconds: 0,
+    inPointSeconds: 0,
+    outPointSeconds: 0,
+    positionSeconds: 0,
+    state: MidiPlaybackState.stopped,
+};
+
+// Mirrors the shape and control surface of the main-process coil player (js/main/midi/midi.ts) -
+// same play/pause/stop/seek/in-out-point semantics - so the renderer's "now playing" bar and
+// timeline can drive either transport interchangeably depending on the preview/coil toggle.
 export class MidiPreviewPlayer {
     private readonly synth = new CoilSynth();
     private player: MidiPlayer.Player | undefined;
+    private filename: string | undefined;
+    private durationSeconds = 0;
+    private inPointSeconds = 0;
+    private outPointSeconds = 0;
+    private playbackState: MidiPlaybackState = MidiPlaybackState.stopped;
+    private pollHandle: ReturnType<typeof setInterval> | undefined;
+    private onStateChange: (state: MidiPlayerState) => void = () => undefined;
+    private onEnded: () => void = () => undefined;
 
-    public play(bytes: Uint8Array, onEnded: () => void) {
-        this.stop();
+    public setListeners(onStateChange: (state: MidiPlayerState) => void, onEnded: () => void) {
+        this.onStateChange = onStateChange;
+        this.onEnded = onEnded;
+    }
+
+    public play(bytes: Uint8Array, filename: string) {
+        this.teardown();
         this.player = new MidiPlayer.Player((event) => this.handleEvent(event));
         (this.player as any).defaultTempo = 120;
-        this.player.on('endOfFile', () => {
-            this.synth.stopAll();
-            onEnded();
-        });
         this.player.loadArrayBuffer(bytes);
+        this.filename = filename;
+        this.durationSeconds = this.player.getSongTime();
+        this.inPointSeconds = 0;
+        this.outPointSeconds = this.durationSeconds;
+        this.player.on('endOfFile', () => this.handleEndOfFile());
+        this.player.skipToSeconds(this.inPointSeconds);
         this.player.play();
+        this.playbackState = MidiPlaybackState.playing;
+        this.startPolling();
+        this.emitState();
+    }
+
+    public pause() {
+        if (!this.player || this.playbackState !== MidiPlaybackState.playing) {
+            return;
+        }
+        this.synth.stopAll();
+        this.player.pause();
+        this.playbackState = MidiPlaybackState.paused;
+        this.emitState();
+    }
+
+    public resume() {
+        if (!this.player || this.playbackState !== MidiPlaybackState.paused) {
+            return;
+        }
+        this.player.play();
+        this.playbackState = MidiPlaybackState.playing;
+        this.emitState();
     }
 
     public stop() {
-        if (this.player) {
-            this.player.stop();
-            this.player = undefined;
+        if (this.playbackState === MidiPlaybackState.stopped) {
+            return;
         }
+        this.teardown();
+        this.playbackState = MidiPlaybackState.stopped;
+        this.emitState();
+    }
+
+    public seek(seconds: number) {
+        if (!this.player) {
+            return;
+        }
+        const clamped = Math.max(0, Math.min(seconds, this.durationSeconds));
+        const wasPlaying = this.playbackState === MidiPlaybackState.playing;
         this.synth.stopAll();
+        this.player.skipToSeconds(clamped);
+        if (wasPlaying) {
+            this.player.play();
+        }
+        this.emitState();
+    }
+
+    public setInPoint(seconds: number) {
+        this.inPointSeconds = Math.max(0, Math.min(seconds, this.outPointSeconds));
+        this.emitState();
+    }
+
+    public setOutPoint(seconds: number) {
+        this.outPointSeconds = Math.min(this.durationSeconds, Math.max(seconds, this.inPointSeconds));
+        this.emitState();
+    }
+
+    public getState(): MidiPlayerState {
+        if (!this.player) {
+            return EMPTY_STATE;
+        }
+        return {
+            durationSeconds: this.durationSeconds,
+            filename: this.filename,
+            inPointSeconds: this.inPointSeconds,
+            outPointSeconds: this.outPointSeconds,
+            positionSeconds: this.getCurrentSeconds(),
+            state: this.playbackState,
+        };
+    }
+
+    private getCurrentSeconds(): number {
+        if (!this.player || !this.player.tracks) {
+            return 0;
+        }
+        return Math.max(0, this.player.getSongTime() - this.player.getSongTimeRemaining());
     }
 
     private handleEvent(event: MidiPlayer.Event) {
@@ -120,5 +215,46 @@ export class MidiPreviewPlayer {
         } else if (event.name === 'Note off' || (event.name === 'Note on' && !(event.velocity || 0))) {
             this.synth.noteOff(key);
         }
+    }
+
+    private handleEndOfFile() {
+        this.teardown();
+        this.playbackState = MidiPlaybackState.stopped;
+        this.emitState();
+        this.onEnded();
+    }
+
+    private startPolling() {
+        this.stopPolling();
+        this.pollHandle = setInterval(() => {
+            if (this.playbackState !== MidiPlaybackState.playing) {
+                return;
+            }
+            if (this.outPointSeconds > 0 && this.getCurrentSeconds() >= this.outPointSeconds) {
+                this.handleEndOfFile();
+                return;
+            }
+            this.emitState();
+        }, 100);
+    }
+
+    private stopPolling() {
+        if (this.pollHandle) {
+            clearInterval(this.pollHandle);
+            this.pollHandle = undefined;
+        }
+    }
+
+    private teardown() {
+        this.stopPolling();
+        if (this.player) {
+            this.player.stop();
+            this.player = undefined;
+        }
+        this.synth.stopAll();
+    }
+
+    private emitState() {
+        this.onStateChange(this.getState());
     }
 }
