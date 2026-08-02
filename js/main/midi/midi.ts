@@ -249,11 +249,15 @@ export function update(): void {
             player.playLoop(false);
         }
         if (media_state.type === MediaFileType.midi && outPointSeconds > 0 && getCurrentSeconds() >= outPointSeconds) {
-            media_state.stopPlaying();
+            // Rewind and pause instead of a full stop, so the now-playing bar keeps showing the
+            // song instead of reverting to "nothing loaded" whenever there's no next playlist
+            // entry to auto-advance to (notifySongEnded() below still lets that happen first if
+            // auto-play is on, which then supersedes this).
+            stopToStartMidiFile();
             notifySongEnded();
         }
     } else if (media_state.state === PlayerActivity.playing && media_state.type === MediaFileType.midi) {
-        media_state.stopPlaying();
+        stopToStartMidiFile();
         notifySongEnded();
     }
 }

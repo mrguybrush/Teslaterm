@@ -289,9 +289,11 @@ export class MidiPreviewPlayer {
     }
 
     private handleEndOfFile() {
-        this.teardown();
-        this.playbackState = MidiPlaybackState.stopped;
-        this.emitState();
+        // Rewind and pause instead of a full stop/teardown, so the now-playing bar keeps showing
+        // the song instead of reverting to "nothing loaded" whenever there's no next playlist
+        // entry to auto-advance to (onEnded() below still lets that happen first if auto-play is
+        // on, which then supersedes this by loading the next song).
+        this.stopToStart();
         this.onEnded();
     }
 
