@@ -159,6 +159,10 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestSavedPlaylists, undefined);
+        // This component only mounts while the MIDI Playlist tab is the active bottom panel (see
+        // SingleCoilTab's conditional render), so a window-level listener here is naturally scoped
+        // to "shortcuts active while this tab is visible" without needing extra focus tracking.
+        window.addEventListener('keydown', this.onKeyDown);
     }
 
     public componentWillUnmount() {
@@ -168,7 +172,23 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         if (this.clickTimer) {
             clearTimeout(this.clickTimer);
         }
+        window.removeEventListener('keydown', this.onKeyDown);
     }
+
+    private onKeyDown = (ev: KeyboardEvent) => {
+        const active = document.activeElement as HTMLElement | null;
+        const tag = active?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active?.isContentEditable) {
+            return;
+        }
+        if (ev.code === 'Space') {
+            ev.preventDefault();
+            this.togglePlayPause();
+        } else if (ev.key.toLowerCase() === 'w') {
+            ev.preventDefault();
+            this.stopCurrent();
+        }
+    };
 
     public render(): React.ReactNode {
         return <div className={'tt-midi-playlist-panel'}>
@@ -307,34 +327,68 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.setPlaylist(newPlaylist);
     }
 
-    private makeNowPlaying() {
-        const preview = this.state.previewMode;
-        const ps = preview ? this.state.previewState : this.state.coilState;
-        if (ps.state === MidiPlaybackState.stopped) {
-            return <div className={'tt-midi-nowplaying tt-midi-nowplaying-empty'}>No song playing</div>;
-        }
+    // Current playback state regardless of mode - shared by the buttons, the keyboard shortcuts,
+    // and the row highlighting.
+    private currentPlayerState(): MidiPlayerState {
+        return this.state.previewMode ? this.state.previewState : this.state.coilState;
+    }
+
+    private controlsDisabled(): boolean {
         // Preview playback never touches the coil, so it should stay controllable even while
         // interaction is otherwise locked (no connection, TR lock, etc.) - only coil transport
         // controls should respect that lock.
-        const controlsDisabled = !preview && this.props.disabled;
-        const pause = () => preview ? this.previewPlayer.pause()
+        return !this.state.previewMode && this.props.disabled;
+    }
+
+    private pauseCurrent() {
+        this.state.previewMode ? this.previewPlayer.pause()
             : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, undefined);
-        const resume = () => preview ? this.previewPlayer.resume()
+    }
+
+    private resumeCurrent() {
+        this.state.previewMode ? this.previewPlayer.resume()
             : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, undefined);
-        const stop = () => preview ? this.previewPlayer.stopToStart()
+    }
+
+    private stopCurrent() {
+        this.state.previewMode ? this.previewPlayer.stopToStart()
             : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.stopToStart, undefined);
+    }
+
+    private togglePlayPause() {
+        if (this.controlsDisabled()) {
+            return;
+        }
+        const ps = this.currentPlayerState();
+        if (ps.state === MidiPlaybackState.playing) {
+            this.pauseCurrent();
+        } else if (ps.state === MidiPlaybackState.paused) {
+            this.resumeCurrent();
+        }
+    }
+
+    private makeNowPlaying() {
+        const ps = this.currentPlayerState();
+        if (ps.state === MidiPlaybackState.stopped) {
+            return <div className={'tt-midi-nowplaying tt-midi-nowplaying-empty'}>No song playing</div>;
+        }
+        const controlsDisabled = this.controlsDisabled();
+        // Nothing has actually played yet from this position (either just loaded, or just
+        // rewound via Stop), so "Play" reads better than "Resume", which implies continuing a
+        // playback that was paused partway through.
+        const atStart = Math.abs(ps.positionSeconds - ps.inPointSeconds) < 0.15;
         return <div className={'tt-midi-nowplaying'}>
             <div className={'tt-midi-nowplaying-row'}>
                 <span className={'tt-midi-nowplaying-title'}>{stripExtension(ps.filename || '')}</span>
-                <ButtonGroup size={'sm'}>
+                <ButtonGroup size={'sm'} className={'tt-midi-nowplaying-controls'}>
                     {ps.state === MidiPlaybackState.playing
-                        ? <Button variant={'secondary'} disabled={controlsDisabled} onClick={pause}>
+                        ? <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.pauseCurrent()}>
                             ⏸ Pause
                         </Button>
-                        : <Button variant={'secondary'} disabled={controlsDisabled} onClick={resume}>
-                            ▶ Resume
+                        : <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.resumeCurrent()}>
+                            ▶ {atStart ? 'Play' : 'Resume'}
                         </Button>}
-                    <Button variant={'secondary'} disabled={controlsDisabled} onClick={stop}>
+                    <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.stopCurrent()}>
                         ⏹ Stop
                     </Button>
                 </ButtonGroup>
@@ -346,13 +400,13 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                 outPointSeconds={ps.outPointSeconds}
                 disabled={controlsDisabled}
                 editableRange={ps.sourcePlaylistIndex !== undefined}
-                onSeek={(s) => preview
+                onSeek={(s) => this.state.previewMode
                     ? this.previewPlayer.seek(s)
                     : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, s)}
-                onSetInPoint={(s) => preview
+                onSetInPoint={(s) => this.state.previewMode
                     ? this.previewPlayer.setInPoint(s)
                     : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, s)}
-                onSetOutPoint={(s) => preview
+                onSetOutPoint={(s) => this.state.previewMode
                     ? this.previewPlayer.setOutPoint(s)
                     : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, s)}
             />
@@ -371,10 +425,16 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             <div className={'tt-midi-list-header'}>Archive ({this.state.library.length})</div>
             <div className={'tt-midi-list-body'} data-mididrop={'library'}>
                 {this.state.library.length === 0 && <p className={'tt-midi-list-empty'}>No MIDI files imported yet.</p>}
-                {this.state.library.map((entry) => (
-                    <div
+                {this.state.library.map((entry) => {
+                    // Exactly one row across both lists is ever "current" - an archive row only
+                    // counts when playback was launched directly from the archive (no playlist
+                    // entry involved), so it doesn't also light up while a playlist row is active.
+                    const ps = this.currentPlayerState();
+                    const isCurrent = ps.filename === entry.filename && ps.sourcePlaylistIndex === undefined &&
+                        ps.state !== MidiPlaybackState.stopped;
+                    return <div
                         key={entry.filename}
-                        className={'tt-midi-row'}
+                        className={'tt-midi-row' + (isCurrent ? ' tt-midi-row-current' : '')}
                         onMouseDown={this.beginDrag('library', entry.filename, stripExtension(entry.filename))}
                         onClick={this.onRowClick(() => this.loadArchiveEntry(entry.filename))}
                         onDoubleClick={this.onRowDoubleClick(() => this.playArchiveEntry(entry.filename))}
@@ -415,8 +475,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         >
                             🗑
                         </Button>
-                    </div>
-                ))}
+                    </div>;
+                })}
             </div>
         </div>;
     }
@@ -627,6 +687,9 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         if (ev.button !== 0 || (ev.target as HTMLElement).closest('button')) {
             return;
         }
+        // Without this, moving the mouse after mousedown makes the browser start a native text
+        // selection over the row instead of letting our own drag tracking take over.
+        ev.preventDefault();
         this.drag = {active: false, label, source, startX: ev.clientX, startY: ev.clientY, value};
         window.addEventListener('mousemove', this.onDragMove);
         window.addEventListener('mouseup', this.onDragUp);
