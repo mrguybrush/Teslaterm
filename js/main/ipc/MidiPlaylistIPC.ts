@@ -138,8 +138,9 @@ export class MidiPlaylistIPC {
     }
 
     private async playArchiveFile(filename: string) {
-        await this.loadAndPlay(filename);
+        await this.loadFile(filename);
         setPlaybackSourcePlaylistIndex(undefined);
+        await media_state.startPlaying();
     }
 
     private async playPlaylistEntry(index: number) {
@@ -147,28 +148,28 @@ export class MidiPlaylistIPC {
         if (!entry) {
             return;
         }
-        await this.loadAndPlay(entry.filename);
+        await this.loadFile(entry.filename);
+        // Must happen before startPlaying(): its startCallback (startCurrentMidiFile) seeks to
+        // whatever inPointSeconds currently is, and loading a file always resets that to 0 first -
+        // setting it afterward was too late to affect where playback actually started from.
         setInPoint(entry.inPointSeconds);
         setOutPoint(entry.outPointSeconds);
         setPlaybackSourcePlaylistIndex(index);
+        await media_state.startPlaying();
     }
 
-    private async loadAndPlay(filename: string) {
+    private async loadFile(filename: string) {
         const filePath = getMidiFilePath(filename);
         const bytes = await fs.promises.readFile(filePath);
         const file: DroppedFile = {bytes: [...new Uint8Array(bytes)], name: filename, path: filePath};
         await loadMediaFile(file);
-        await media_state.startPlaying();
     }
 
     // Loads a file into the player and shows it in the now-playing bar without actually starting
     // playback (single-click behavior) - loadMediaFile() alone leaves the generic PlayerActivity
     // wherever it was before (often idle, which would hide the bar), so force it to "paused".
     private async loadOnly(filename: string) {
-        const filePath = getMidiFilePath(filename);
-        const bytes = await fs.promises.readFile(filePath);
-        const file: DroppedFile = {bytes: [...new Uint8Array(bytes)], name: filename, path: filePath};
-        await loadMediaFile(file);
+        await this.loadFile(filename);
         media_state.forcePaused();
     }
 
