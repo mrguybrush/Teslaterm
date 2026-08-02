@@ -21,12 +21,24 @@ export const player = new MidiPlayer.Player(
 let currentDurationSeconds = 0;
 let inPointSeconds = 0;
 let outPointSeconds = 0;
+// Index into the current playlist that the currently loaded file was launched from, if any -
+// undefined for archive/other launches. Only playlist-launched playback has an entry to persist
+// in/out edits back into, and only that case exposes the trim handles in the renderer.
+let sourcePlaylistIndex: number | undefined;
 
 /** Called once a new file has been loaded into `player`; resets the trim range to the full song. */
 export function setMidiDuration(seconds: number) {
     currentDurationSeconds = seconds;
     inPointSeconds = 0;
     outPointSeconds = seconds;
+}
+
+export function setPlaybackSourcePlaylistIndex(index: number | undefined) {
+    sourcePlaylistIndex = index;
+}
+
+export function getPlaybackSourcePlaylistIndex(): number | undefined {
+    return sourcePlaylistIndex;
 }
 
 export function setInPoint(seconds: number) {
@@ -60,6 +72,7 @@ export function getMidiPlayerState(): MidiPlayerState {
         inPointSeconds,
         outPointSeconds,
         positionSeconds: loaded ? getCurrentSeconds() : 0,
+        sourcePlaylistIndex: loaded ? sourcePlaylistIndex : undefined,
         state,
     };
 }

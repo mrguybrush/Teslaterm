@@ -6,6 +6,9 @@ export interface MidiTimelineProps {
     inPointSeconds: number;
     outPointSeconds: number;
     disabled: boolean;
+    // Only playback launched from a specific playlist entry has somewhere to persist a trim to -
+    // archive playback always plays the full file, so the in/out handles are hidden for it.
+    editableRange: boolean;
     onSeek: (seconds: number) => void;
     onSetInPoint: (seconds: number) => void;
     onSetOutPoint: (seconds: number) => void;
@@ -46,25 +49,25 @@ export class MidiTimeline extends React.Component<MidiTimelineProps> {
                 ref={this.trackRef}
                 onClick={this.onTrackClick}
             >
-                <div
+                {this.props.editableRange && <div
                     className={'tt-midi-timeline-range'}
                     style={{left: `${inPct}%`, width: `${Math.max(0, outPct - inPct)}%`}}
-                />
+                />}
                 <div className={'tt-midi-timeline-playhead'} style={{left: `${pct(this.props.positionSeconds)}%`}}/>
-                <div
+                {this.props.editableRange && <div
                     className={'tt-midi-timeline-handle tt-midi-timeline-handle-in'}
                     style={{left: `${inPct}%`}}
                     onMouseDown={this.startDrag('in')}
                     onClick={(ev) => ev.stopPropagation()}
                     title={'Drag to set in point'}
-                />
-                <div
+                />}
+                {this.props.editableRange && <div
                     className={'tt-midi-timeline-handle tt-midi-timeline-handle-out'}
                     style={{left: `${outPct}%`}}
                     onMouseDown={this.startDrag('out')}
                     onClick={(ev) => ev.stopPropagation()}
                     title={'Drag to set out point'}
-                />
+                />}
             </div>
             <div className={'tt-midi-timeline-labels'}>
                 <span>{formatDuration(this.props.positionSeconds)}</span>

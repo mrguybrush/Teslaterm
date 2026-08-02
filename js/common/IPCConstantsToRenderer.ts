@@ -1,7 +1,7 @@
 import {CoilID, coilSuffix, UD3AlarmLevel} from "./constants";
 import {FlightSessionInfo, InitialFRState, ParsedEvent} from "./FlightRecorderTypes";
 import {MediaFileType, PlayerActivity} from './MediaTypes';
-import {MidiLibraryEntry, MidiPlayerState, MidiPreviewFile} from "./MidiPlaylistTypes";
+import {MidiLibraryEntry, MidiPlaylistEntry, MidiPlayerState, MidiPreviewFile} from "./MidiPlaylistTypes";
 import {AllFaders, MixerLayer} from "./MixerTypes";
 import {SingleConnectionOptions} from "./SingleConnectionOptions";
 import {TTConfig} from "./TTConfig";
@@ -40,7 +40,7 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     midiPlaylist: {
         library: makeKey<MidiLibraryEntry[]>('midi-playlist-library'),
         playerState: makeKey<MidiPlayerState>('midi-playlist-player-state'),
-        playlist: makeKey<string[]>('midi-playlist-playlist'),
+        playlist: makeKey<MidiPlaylistEntry[]>('midi-playlist-playlist'),
         previewFile: makeKey<MidiPreviewFile>('midi-playlist-preview-file'),
         savedPlaylists: makeKey<string[]>('midi-playlist-saved-list'),
         songEnded: makeKey<undefined>('midi-playlist-song-ended'),

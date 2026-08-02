@@ -109,24 +109,40 @@ export class MidiPreviewPlayer {
     private inPointSeconds = 0;
     private outPointSeconds = 0;
     private playbackState: MidiPlaybackState = MidiPlaybackState.stopped;
+    private sourcePlaylistIndex: number | undefined;
     private pollHandle: ReturnType<typeof setInterval> | undefined;
     private onStateChange: (state: MidiPlayerState) => void = () => undefined;
     private onEnded: () => void = () => undefined;
+    private onInOutChanged: (index: number, inPointSeconds: number, outPointSeconds: number) => void = () => undefined;
 
-    public setListeners(onStateChange: (state: MidiPlayerState) => void, onEnded: () => void) {
+    public setListeners(
+        onStateChange: (state: MidiPlayerState) => void,
+        onEnded: () => void,
+        onInOutChanged: (index: number, inPointSeconds: number, outPointSeconds: number) => void,
+    ) {
         this.onStateChange = onStateChange;
         this.onEnded = onEnded;
+        this.onInOutChanged = onInOutChanged;
     }
 
-    public play(bytes: Uint8Array, filename: string) {
+    // sourcePlaylistIndex/initialInPoint/initialOutPoint are set when playback was launched from a
+    // specific playlist entry - archive playback omits them and always plays the full file.
+    public play(
+        bytes: Uint8Array,
+        filename: string,
+        sourcePlaylistIndex?: number,
+        initialInPoint?: number,
+        initialOutPoint?: number,
+    ) {
         this.teardown();
         this.player = new MidiPlayer.Player((event) => this.handleEvent(event));
         (this.player as any).defaultTempo = 120;
         this.player.loadArrayBuffer(bytes);
         this.filename = filename;
+        this.sourcePlaylistIndex = sourcePlaylistIndex;
         this.durationSeconds = this.player.getSongTime();
-        this.inPointSeconds = 0;
-        this.outPointSeconds = this.durationSeconds;
+        this.inPointSeconds = Math.max(0, Math.min(initialInPoint ?? 0, this.durationSeconds));
+        this.outPointSeconds = Math.min(this.durationSeconds, Math.max(initialOutPoint ?? this.durationSeconds, this.inPointSeconds));
         this.player.on('endOfFile', () => this.handleEndOfFile());
         this.player.skipToSeconds(this.inPointSeconds);
         this.player.play();
@@ -179,11 +195,13 @@ export class MidiPreviewPlayer {
 
     public setInPoint(seconds: number) {
         this.inPointSeconds = Math.max(0, Math.min(seconds, this.outPointSeconds));
+        this.notifyInOutChanged();
         this.emitState();
     }
 
     public setOutPoint(seconds: number) {
         this.outPointSeconds = Math.min(this.durationSeconds, Math.max(seconds, this.inPointSeconds));
+        this.notifyInOutChanged();
         this.emitState();
     }
 
@@ -197,8 +215,15 @@ export class MidiPreviewPlayer {
             inPointSeconds: this.inPointSeconds,
             outPointSeconds: this.outPointSeconds,
             positionSeconds: this.getCurrentSeconds(),
+            sourcePlaylistIndex: this.sourcePlaylistIndex,
             state: this.playbackState,
         };
+    }
+
+    private notifyInOutChanged() {
+        if (this.sourcePlaylistIndex !== undefined) {
+            this.onInOutChanged(this.sourcePlaylistIndex, this.inPointSeconds, this.outPointSeconds);
+        }
     }
 
     private getCurrentSeconds(): number {

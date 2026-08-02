@@ -15,7 +15,14 @@ import {
     setPlaylist,
 } from "../media/MidiLibrary";
 import {loadMediaFile, media_state, onSongEnded} from "../media/media_player";
-import {getMidiPlayerState, seekMidi, setInPoint, setOutPoint} from "../midi/midi";
+import {
+    getMidiPlayerState,
+    getPlaybackSourcePlaylistIndex,
+    seekMidi,
+    setInPoint,
+    setOutPoint,
+    setPlaybackSourcePlaylistIndex,
+} from "../midi/midi";
 import {mainWindow} from "../main_electron";
 import {MainIPC} from "./IPCProvider";
 
@@ -36,12 +43,25 @@ export class MidiPlaylistIPC {
             setPlaylist(files);
             this.sendPlaylist();
         });
-        processIPC.onAsync(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, (filename) => this.playFile(filename));
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.playArchiveFile,
+            (filename) => this.playArchiveFile(filename),
+        );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.playPlaylistEntry,
+            (index) => this.playPlaylistEntry(index),
+        );
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, () => media_state.pausePlaying());
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, () => media_state.resumePlaying());
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, (seconds) => seekMidi(seconds));
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, (seconds) => setInPoint(seconds));
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, (seconds) => setOutPoint(seconds));
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, (seconds) => {
+            setInPoint(seconds);
+            this.persistCurrentInOut();
+        });
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, (seconds) => {
+            setOutPoint(seconds);
+            this.persistCurrentInOut();
+        });
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestSavedPlaylists, () => this.sendSavedPlaylists());
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.savePlaylistAs, (name) => {
             savePlaylistAs(name, listPlaylist());
@@ -100,11 +120,47 @@ export class MidiPlaylistIPC {
         );
     }
 
-    private async playFile(filename: string) {
+    private async playArchiveFile(filename: string) {
+        await this.loadAndPlay(filename);
+        setPlaybackSourcePlaylistIndex(undefined);
+    }
+
+    private async playPlaylistEntry(index: number) {
+        const entry = listPlaylist()[index];
+        if (!entry) {
+            return;
+        }
+        await this.loadAndPlay(entry.filename);
+        setInPoint(entry.inPointSeconds);
+        setOutPoint(entry.outPointSeconds);
+        setPlaybackSourcePlaylistIndex(index);
+    }
+
+    private async loadAndPlay(filename: string) {
         const filePath = getMidiFilePath(filename);
         const bytes = await fs.promises.readFile(filePath);
         const file: DroppedFile = {bytes: [...new Uint8Array(bytes)], name: filename, path: filePath};
         await loadMediaFile(file);
         await media_state.startPlaying();
+    }
+
+    // Live in/out edits only have somewhere to persist to when the currently loaded file was
+    // launched from a specific playlist entry (see getPlaybackSourcePlaylistIndex) - archive
+    // playback plays the full file and doesn't expose in/out editing in the renderer at all, but
+    // guard here too in case that ever changes.
+    private persistCurrentInOut() {
+        const index = getPlaybackSourcePlaylistIndex();
+        if (index === undefined) {
+            return;
+        }
+        const playlist = listPlaylist();
+        const entry = playlist[index];
+        if (!entry) {
+            return;
+        }
+        const state = getMidiPlayerState();
+        playlist[index] = {...entry, inPointSeconds: state.inPointSeconds, outPointSeconds: state.outPointSeconds};
+        setPlaylist(playlist);
+        this.sendPlaylist();
     }
 }

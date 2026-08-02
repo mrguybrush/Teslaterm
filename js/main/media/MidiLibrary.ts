@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as MidiPlayer from "midi-player-js";
 import * as path from "path";
-import {MidiLibraryEntry, MidiPolyphonyClass} from "../../common/MidiPlaylistTypes";
+import {MidiLibraryEntry, MidiPlaylistEntry, MidiPolyphonyClass} from "../../common/MidiPlaylistTypes";
 
 export const MIDI_DIR = "midis";
 const LIBRARY_INDEX_FILE = path.join(MIDI_DIR, "index.json");
@@ -172,10 +172,10 @@ export function deleteMidiFile(filename: string) {
     const index = readLibraryIndex();
     delete index[filename];
     writeLibraryIndex(index);
-    setPlaylist(listPlaylist().filter((f) => f !== filename));
+    setPlaylist(listPlaylist().filter((e) => e.filename !== filename));
 }
 
-export function listPlaylist(): string[] {
+export function listPlaylist(): MidiPlaylistEntry[] {
     ensureDir();
     try {
         return JSON.parse(fs.readFileSync(PLAYLIST_FILE, {encoding: "utf-8"}));
@@ -184,9 +184,9 @@ export function listPlaylist(): string[] {
     }
 }
 
-export function setPlaylist(files: string[]) {
+export function setPlaylist(entries: MidiPlaylistEntry[]) {
     ensureDir();
-    fs.writeFileSync(PLAYLIST_FILE, JSON.stringify(files, null, 2));
+    fs.writeFileSync(PLAYLIST_FILE, JSON.stringify(entries, null, 2));
 }
 
 function ensureSavedPlaylistsDir() {
@@ -211,15 +211,15 @@ export function listSavedPlaylists(): string[] {
         .sort((a, b) => a.localeCompare(b));
 }
 
-export function savePlaylistAs(name: string, files: string[]) {
+export function savePlaylistAs(name: string, entries: MidiPlaylistEntry[]) {
     ensureSavedPlaylistsDir();
-    fs.writeFileSync(savedPlaylistPath(name), JSON.stringify({files, name}, null, 2));
+    fs.writeFileSync(savedPlaylistPath(name), JSON.stringify({entries, name}, null, 2));
 }
 
-export function loadSavedPlaylist(name: string): string[] {
+export function loadSavedPlaylist(name: string): MidiPlaylistEntry[] {
     try {
         const info = JSON.parse(fs.readFileSync(savedPlaylistPath(name), {encoding: "utf-8"}));
-        return info.files || [];
+        return info.entries || [];
     } catch (e) {
         return [];
     }

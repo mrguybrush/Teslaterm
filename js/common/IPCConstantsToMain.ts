@@ -1,3 +1,4 @@
+import {MidiPlaylistEntry} from "./MidiPlaylistTypes";
 import {MixerLayer, VolumeKey, VolumeUpdate} from "./MixerTypes";
 import {MultiConnectionOptions, SingleConnectionOptions} from './SingleConnectionOptions';
 import {CoilID, coilSuffix} from "./constants";
@@ -48,7 +49,8 @@ export const IPC_CONSTANTS_TO_MAIN = {
         deleteSavedPlaylist: makeKey<string>('midi-playlist-delete-saved'),
         loadSavedPlaylist: makeKey<string>('midi-playlist-load-saved'),
         pause: makeKey<undefined>('midi-playlist-pause'),
-        playFile: makeKey<string>('midi-playlist-play-file'),
+        playArchiveFile: makeKey<string>('midi-playlist-play-archive-file'),
+        playPlaylistEntry: makeKey<number>('midi-playlist-play-playlist-entry'),
         requestImport: makeKey<undefined>('midi-playlist-import'),
         requestLibrary: makeKey<undefined>('midi-playlist-library-request'),
         requestPlaylist: makeKey<undefined>('midi-playlist-list-request'),
@@ -59,7 +61,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         seek: makeKey<number>('midi-playlist-seek'),
         setInPoint: makeKey<number>('midi-playlist-set-in-point'),
         setOutPoint: makeKey<number>('midi-playlist-set-out-point'),
-        setPlaylist: makeKey<string[]>('midi-playlist-set-playlist'),
+        setPlaylist: makeKey<MidiPlaylistEntry[]>('midi-playlist-set-playlist'),
     },
     menu: {
         startMedia: makeKey<undefined>('start-media'),

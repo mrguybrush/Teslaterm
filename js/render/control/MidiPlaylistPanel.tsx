@@ -2,7 +2,13 @@ import React from "react";
 import {Button, ButtonGroup, Form, Modal} from "react-bootstrap";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
-import {MidiLibraryEntry, MidiPlaybackState, MidiPlayerState, MidiPolyphonyClass} from "../../common/MidiPlaylistTypes";
+import {
+    MidiLibraryEntry,
+    MidiPlaybackState,
+    MidiPlayerState,
+    MidiPlaylistEntry,
+    MidiPolyphonyClass,
+} from "../../common/MidiPlaylistTypes";
 import {MidiPreviewPlayer} from "../audio/MidiPreviewPlayer";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
@@ -14,7 +20,7 @@ export interface MidiPlaylistPanelProps {
 
 interface MidiPlaylistPanelState {
     library: MidiLibraryEntry[];
-    playlist: string[];
+    playlist: MidiPlaylistEntry[];
     coilState: MidiPlayerState;
     previewState: MidiPlayerState;
     previewMode: boolean;
@@ -35,6 +41,10 @@ interface DragState {
     startY: number;
     active: boolean;
 }
+
+// What gets loaded when a song is clicked - either a bare archive file (always the full length),
+// or a specific playlist entry (its own stored in/out range, editable and persisted back to it).
+type PlayTarget = { kind: 'archive', filename: string } | { kind: 'playlist', index: number };
 
 function stripExtension(filename: string): string {
     return filename.replace(/\.midi?$/i, '');
@@ -64,6 +74,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
     private drag: DragState | undefined;
     private dragGhostEl: HTMLDivElement | undefined;
     private hoverEl: HTMLElement | undefined;
+    private pendingPreview: PlayTarget | undefined;
 
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
@@ -93,17 +104,27 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             (savedPlaylists) => this.setState({savedPlaylists}),
         );
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.previewFile, ({filename, bytes}) => {
-            if (this.pendingPreviewFile !== filename) {
+            const target = this.pendingPreview;
+            if (!target || (target.kind === 'archive' ? target.filename !== filename
+                : this.state.playlist[target.index]?.filename !== filename)) {
                 // A late response for a file we've since navigated away from.
                 return;
             }
-            this.pendingPreviewFile = undefined;
-            this.previewPlayer.play(new Uint8Array(bytes), filename);
+            this.pendingPreview = undefined;
+            if (target.kind === 'archive') {
+                this.previewPlayer.play(new Uint8Array(bytes), filename);
+            } else {
+                const entry = this.state.playlist[target.index];
+                this.previewPlayer.play(
+                    new Uint8Array(bytes), filename, target.index, entry.inPointSeconds, entry.outPointSeconds,
+                );
+            }
         });
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, () => this.onSongEnded(false));
         this.previewPlayer.setListeners(
             (previewState) => this.setState({previewState}),
             () => this.onSongEnded(true),
+            (index, inPointSeconds, outPointSeconds) => this.persistInOut(index, inPointSeconds, outPointSeconds),
         );
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
@@ -115,8 +136,6 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.previewPlayer.stop();
         this.endDrag();
     }
-
-    private pendingPreviewFile: string | undefined;
 
     public render(): React.ReactNode {
         return <div className={'tt-midi-playlist-panel'}>
@@ -157,20 +176,43 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         if (!this.state.autoPlay || fromPreview !== this.state.previewMode) {
             return;
         }
-        const finished = this.state.previewMode ? this.state.previewState.filename : this.state.coilState.filename;
-        const index = this.state.playlist.indexOf(finished);
-        if (index >= 0 && index + 1 < this.state.playlist.length) {
-            this.playFile(this.state.playlist[index + 1]);
+        const ps = this.state.previewMode ? this.state.previewState : this.state.coilState;
+        const index = ps.sourcePlaylistIndex;
+        if (index !== undefined && index + 1 < this.state.playlist.length) {
+            this.playPlaylistEntry(index + 1);
         }
     }
 
-    private playFile(filename: string) {
+    private playArchiveEntry(filename: string) {
         if (this.state.previewMode) {
-            this.pendingPreviewFile = filename;
+            this.pendingPreview = {filename, kind: 'archive'};
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, filename);
         } else {
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, filename);
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playArchiveFile, filename);
         }
+    }
+
+    private playPlaylistEntry(index: number) {
+        const entry = this.state.playlist[index];
+        if (!entry) {
+            return;
+        }
+        if (this.state.previewMode) {
+            this.pendingPreview = {index, kind: 'playlist'};
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, entry.filename);
+        } else {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playPlaylistEntry, index);
+        }
+    }
+
+    private persistInOut(index: number, inPointSeconds: number, outPointSeconds: number) {
+        const entry = this.state.playlist[index];
+        if (!entry) {
+            return;
+        }
+        const newPlaylist = [...this.state.playlist];
+        newPlaylist[index] = {...entry, inPointSeconds, outPointSeconds};
+        this.setPlaylist(newPlaylist);
     }
 
     private makeNowPlaying() {
@@ -211,6 +253,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                 inPointSeconds={ps.inPointSeconds}
                 outPointSeconds={ps.outPointSeconds}
                 disabled={controlsDisabled}
+                editableRange={ps.sourcePlaylistIndex !== undefined}
                 onSeek={(s) => preview
                     ? this.previewPlayer.seek(s)
                     : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, s)}
@@ -251,14 +294,14 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                             size={'sm'}
                             variant={'primary'}
                             disabled={!this.state.previewMode && this.props.disabled}
-                            onClick={() => this.playFile(entry.filename)}
+                            onClick={() => this.playArchiveEntry(entry.filename)}
                         >
                             ▶
                         </Button>
                         <Button
                             size={'sm'}
                             variant={'secondary'}
-                            onClick={() => this.addToPlaylist(entry.filename)}
+                            onClick={() => this.addToPlaylist(entry)}
                         >
                             +
                         </Button>
@@ -284,30 +327,39 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             <div className={'tt-midi-list-body'} data-mididrop={'playlist'}>
                 {this.state.playlist.length === 0 &&
                     <p className={'tt-midi-list-empty'}>Drag songs here, or use the + button on the left.</p>}
-                {this.state.playlist.map((filename, index) => {
-                    const entry = this.state.library.find((e) => e.filename === filename);
-                    const coilCurrent = !this.state.previewMode && this.state.coilState.filename === filename &&
+                {this.state.playlist.map((entry, index) => {
+                    const libraryEntry = this.state.library.find((e) => e.filename === entry.filename);
+                    const coilCurrent = !this.state.previewMode && this.state.coilState.sourcePlaylistIndex === index &&
                         this.state.coilState.state !== MidiPlaybackState.stopped;
-                    const previewCurrent = this.state.previewMode && this.state.previewState.filename === filename &&
+                    const previewCurrent = this.state.previewMode &&
+                        this.state.previewState.sourcePlaylistIndex === index &&
                         this.state.previewState.state !== MidiPlaybackState.stopped;
                     const isCurrent = coilCurrent || previewCurrent;
+                    const clipSeconds = Math.max(0, entry.outPointSeconds - entry.inPointSeconds);
+                    const isTrimmed = libraryEntry !== undefined &&
+                        (entry.inPointSeconds > 0.01 || entry.outPointSeconds < libraryEntry.durationSeconds - 0.01);
                     return <div
                         key={index}
                         className={'tt-midi-row' + (isCurrent ? ' tt-midi-row-current' : '')}
                         data-mididrop={'playlist-row'}
                         data-index={index}
-                        onMouseDown={this.beginDrag('playlist', String(index), stripExtension(filename))}
+                        onMouseDown={this.beginDrag('playlist', String(index), stripExtension(entry.filename))}
                     >
-                        {entry ? this.makeDot(entry.polyphony) : <span className={'tt-midi-dot'}/>}
-                        <span className={'tt-midi-row-name'} title={filename}>{stripExtension(filename)}</span>
-                        <span className={'tt-midi-row-duration'}>
-                            {formatDuration(entry?.durationSeconds || 0)}
+                        {libraryEntry ? this.makeDot(libraryEntry.polyphony) : <span className={'tt-midi-dot'}/>}
+                        <span className={'tt-midi-row-name'} title={entry.filename}>
+                            {stripExtension(entry.filename)}
+                        </span>
+                        <span
+                            className={'tt-midi-row-duration'}
+                            title={isTrimmed ? `Trimmed clip (full song: ${formatDuration(libraryEntry.durationSeconds)})` : undefined}
+                        >
+                            {isTrimmed ? '✂ ' : ''}{formatDuration(clipSeconds)}
                         </span>
                         <Button
                             size={'sm'}
                             variant={'primary'}
                             disabled={!this.state.previewMode && this.props.disabled}
-                            onClick={() => this.playFile(filename)}
+                            onClick={() => this.playPlaylistEntry(index)}
                         >
                             ▶
                         </Button>
@@ -391,6 +443,10 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.setState({selectedSavedPlaylist: name});
         if (name) {
             processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadSavedPlaylist, name);
+        } else {
+            // "-- unsaved / new --" starts a fresh, empty working playlist rather than just
+            // deselecting while leaving the previous playlist's contents in place.
+            this.setPlaylist([]);
         }
     }
 
@@ -466,7 +522,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
     private applyDrop(source: DragSource, value: string, targetIndex: number) {
         const newPlaylist = [...this.state.playlist];
         if (source === 'library') {
-            newPlaylist.splice(targetIndex, 0, value);
+            const libraryEntry = this.state.library.find((e) => e.filename === value);
+            newPlaylist.splice(targetIndex, 0, this.makeEntry(value, libraryEntry?.durationSeconds || 0));
         } else {
             const fromIndex = Number(value);
             const [item] = newPlaylist.splice(fromIndex, 1);
@@ -514,8 +571,12 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.hoverEl = undefined;
     }
 
-    private addToPlaylist(filename: string) {
-        this.setPlaylist([...this.state.playlist, filename]);
+    private makeEntry(filename: string, durationSeconds: number): MidiPlaylistEntry {
+        return {filename, inPointSeconds: 0, outPointSeconds: durationSeconds};
+    }
+
+    private addToPlaylist(entry: MidiLibraryEntry) {
+        this.setPlaylist([...this.state.playlist, this.makeEntry(entry.filename, entry.durationSeconds)]);
     }
 
     private removeFromPlaylist(index: number) {
@@ -532,9 +593,9 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.setPlaylist(newPlaylist);
     }
 
-    private setPlaylist(files: string[]) {
-        this.setState({playlist: files});
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setPlaylist, files);
+    private setPlaylist(entries: MidiPlaylistEntry[]) {
+        this.setState({playlist: entries});
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setPlaylist, entries);
     }
 
     private deleteLibraryFile(filename: string) {
