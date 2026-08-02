@@ -241,6 +241,13 @@ export class MidiPreviewPlayer {
     public setOutPoint(seconds: number) {
         this.outPointSeconds = Math.min(this.durationSeconds, Math.max(seconds, this.inPointSeconds));
         this.notifyInOutChanged();
+        if (this.getCurrentSeconds() >= this.outPointSeconds) {
+            // The playhead is already at or past the new out point - without this, the next poll
+            // tick would treat it as "reached the end" and could auto-advance to the next
+            // playlist entry, making the song disappear instead of just stopping where marked.
+            this.stopToStart();
+            return;
+        }
         this.emitState();
     }
 

@@ -47,6 +47,13 @@ export function setInPoint(seconds: number) {
 
 export function setOutPoint(seconds: number) {
     outPointSeconds = Math.min(currentDurationSeconds, Math.max(seconds, inPointSeconds));
+    if (getCurrentSeconds() >= outPointSeconds) {
+        // The playhead is already at or past the new out point - without this, the very next
+        // update() tick would treat this as "reached the end" and could auto-advance to the next
+        // playlist entry, making the song being trimmed abruptly disappear instead of just
+        // stopping where the user just marked it to stop.
+        stopToStartMidiFile();
+    }
 }
 
 export function getCurrentSeconds(): number {
