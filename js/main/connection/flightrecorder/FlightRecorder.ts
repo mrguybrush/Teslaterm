@@ -91,6 +91,12 @@ export class FlightRecorder {
     public startSession() {
         this.sessionActive = true;
         this.sessionStartWallClock = Date.now();
+        // Buffers are never trimmed as events are recorded (export always reads from byte 0), so
+        // starting a new session with fresh buffers is what actually scopes the eventual export to
+        // just this session - otherwise every session's export would still contain everything
+        // recorded since these buffers were last reset (i.e. all previous sessions too).
+        this.oldBuffer = makeFlightRecordingBuffer(this.coil);
+        this.activeBuffer = makeFlightRecordingBuffer(this.coil);
     }
 
     /** Called when TR is switched off while automatic flight recording is enabled; exports the session to disk. */
