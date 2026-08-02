@@ -136,6 +136,16 @@
     transition: left 0.08s linear;
 }
 
+.tt-midi-timeline-playhead-hit {
+    position: absolute;
+    top: -5px;
+    bottom: -5px;
+    width: 14px;
+    margin-left: -7px;
+    cursor: grab;
+    z-index: 4;
+}
+
 .tt-midi-timeline-handle {
     position: absolute;
     top: -3px;

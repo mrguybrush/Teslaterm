@@ -14,7 +14,7 @@ export interface MidiTimelineProps {
     onSetOutPoint: (seconds: number) => void;
 }
 
-type DragTarget = 'in' | 'out' | undefined;
+type DragTarget = 'in' | 'out' | 'playhead' | undefined;
 
 export function formatDuration(seconds: number): string {
     if (!isFinite(seconds) || seconds < 0) {
@@ -54,6 +54,13 @@ export class MidiTimeline extends React.Component<MidiTimelineProps> {
                     style={{left: `${inPct}%`, width: `${Math.max(0, outPct - inPct)}%`}}
                 />}
                 <div className={'tt-midi-timeline-playhead'} style={{left: `${pct(this.props.positionSeconds)}%`}}/>
+                <div
+                    className={'tt-midi-timeline-playhead-hit'}
+                    style={{left: `${pct(this.props.positionSeconds)}%`}}
+                    onMouseDown={this.startDrag('playhead')}
+                    onClick={(ev) => ev.stopPropagation()}
+                    title={'Drag to seek'}
+                />
                 {this.props.editableRange && <div
                     className={'tt-midi-timeline-handle tt-midi-timeline-handle-in'}
                     style={{left: `${inPct}%`}}
@@ -115,8 +122,10 @@ export class MidiTimeline extends React.Component<MidiTimelineProps> {
         const seconds = this.secondsAtClientX(ev.clientX);
         if (this.dragging === 'in') {
             this.props.onSetInPoint(seconds);
-        } else {
+        } else if (this.dragging === 'out') {
             this.props.onSetOutPoint(seconds);
+        } else {
+            this.props.onSeek(seconds);
         }
     };
 

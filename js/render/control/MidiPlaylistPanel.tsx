@@ -187,8 +187,40 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         } else if (ev.key.toLowerCase() === 'w') {
             ev.preventDefault();
             this.stopCurrent();
+        } else if (ev.key.toLowerCase() === 'i') {
+            ev.preventDefault();
+            this.setInPointAtCurrent();
+        } else if (ev.key.toLowerCase() === 'o') {
+            ev.preventDefault();
+            this.setOutPointAtCurrent();
         }
     };
+
+    // I/O only do anything for playlist-launched playback - there's nowhere to persist a trim to
+    // for a bare archive play, same reasoning as why the timeline hides its handles there.
+    private setInPointAtCurrent() {
+        if (this.controlsDisabled()) {
+            return;
+        }
+        const ps = this.currentPlayerState();
+        if (ps.sourcePlaylistIndex === undefined) {
+            return;
+        }
+        this.state.previewMode ? this.previewPlayer.setInPoint(ps.positionSeconds)
+            : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, ps.positionSeconds);
+    }
+
+    private setOutPointAtCurrent() {
+        if (this.controlsDisabled()) {
+            return;
+        }
+        const ps = this.currentPlayerState();
+        if (ps.sourcePlaylistIndex === undefined) {
+            return;
+        }
+        this.state.previewMode ? this.previewPlayer.setOutPoint(ps.positionSeconds)
+            : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, ps.positionSeconds);
+    }
 
     public render(): React.ReactNode {
         return <div className={'tt-midi-playlist-panel'}>

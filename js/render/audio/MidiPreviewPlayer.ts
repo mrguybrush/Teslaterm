@@ -179,6 +179,7 @@ export class MidiPreviewPlayer {
         if (!this.player || this.playbackState !== MidiPlaybackState.playing) {
             return;
         }
+        this.stopPolling();
         this.synth.stopAll();
         this.player.pause();
         this.playbackState = MidiPlaybackState.paused;
@@ -191,6 +192,7 @@ export class MidiPreviewPlayer {
         }
         this.player.play();
         this.playbackState = MidiPlaybackState.playing;
+        this.startPolling();
         this.emitState();
     }
 
