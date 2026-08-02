@@ -107,7 +107,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
         this.state = {
-            autoPlay: false,
+            autoPlay: true,
             coilState: EMPTY_PLAYER_STATE,
             library: [],
             playlist: [],
@@ -513,9 +513,40 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         </div>;
     }
 
+    private playPlaylistFromStart() {
+        if (this.state.playlist.length === 0 || this.coilLocked()) {
+            return;
+        }
+        if (!this.state.autoPlay) {
+            this.setState({autoPlay: true});
+        }
+        this.playPlaylistEntry(0);
+    }
+
+    private makePlaylistTransport() {
+        const disabled = this.controlsDisabled();
+        return <ButtonGroup size={'sm'} className={'tt-midi-playlist-transport'}>
+            <Button
+                variant={'secondary'}
+                disabled={disabled || this.state.playlist.length === 0}
+                title={'Play playlist from the start'}
+                onClick={() => this.playPlaylistFromStart()}
+            >
+                ▶
+            </Button>
+            <Button variant={'secondary'} disabled={disabled} title={'Pause'} onClick={() => this.pauseCurrent()}>
+                ⏸
+            </Button>
+            <Button variant={'secondary'} disabled={disabled} title={'Stop'} onClick={() => this.stopCurrent()}>
+                ⏹
+            </Button>
+        </ButtonGroup>;
+    }
+
     private makePlaylistColumn() {
         return <div className={'tt-midi-list'}>
             <div className={'tt-midi-list-header'}>
+                {this.makePlaylistTransport()}
                 Current playlist ({this.state.playlist.length})
                 {this.makeSavedPlaylistBar()}
             </div>
