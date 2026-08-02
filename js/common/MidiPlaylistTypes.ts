@@ -21,3 +21,8 @@ export interface MidiPlayerState {
     inPointSeconds: number;
     outPointSeconds: number;
 }
+
+export interface MidiPreviewFile {
+    filename: string;
+    bytes: number[];
+}

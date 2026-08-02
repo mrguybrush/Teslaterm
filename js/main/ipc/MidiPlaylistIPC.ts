@@ -4,10 +4,14 @@ import {DroppedFile, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMai
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {
     deleteMidiFile,
+    deleteSavedPlaylist,
     getMidiFilePath,
     importMidiFile,
     listLibrary,
     listPlaylist,
+    listSavedPlaylists,
+    loadSavedPlaylist,
+    savePlaylistAs,
     setPlaylist,
 } from "../media/MidiLibrary";
 import {loadMediaFile, media_state, onSongEnded} from "../media/media_player";
@@ -38,6 +42,23 @@ export class MidiPlaylistIPC {
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, (seconds) => seekMidi(seconds));
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, (seconds) => setInPoint(seconds));
         processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, (seconds) => setOutPoint(seconds));
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestSavedPlaylists, () => this.sendSavedPlaylists());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.savePlaylistAs, (name) => {
+            savePlaylistAs(name, listPlaylist());
+            this.sendSavedPlaylists();
+        });
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadSavedPlaylist, (name) => {
+            setPlaylist(loadSavedPlaylist(name));
+            this.sendPlaylist();
+        });
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteSavedPlaylist, (name) => {
+            deleteSavedPlaylist(name);
+            this.sendSavedPlaylists();
+        });
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile,
+            (filename) => this.sendPreviewFile(filename),
+        );
         onSongEnded(() => this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, undefined));
     }
 
@@ -64,6 +85,19 @@ export class MidiPlaylistIPC {
 
     private sendPlaylist() {
         this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playlist, listPlaylist());
+    }
+
+    private sendSavedPlaylists() {
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.savedPlaylists, listSavedPlaylists());
+    }
+
+    private async sendPreviewFile(filename: string) {
+        const filePath = getMidiFilePath(filename);
+        const bytes = await fs.promises.readFile(filePath);
+        this.processIPC.send(
+            IPC_CONSTANTS_TO_RENDERER.midiPlaylist.previewFile,
+            {bytes: [...new Uint8Array(bytes)], filename},
+        );
     }
 
     private async playFile(filename: string) {

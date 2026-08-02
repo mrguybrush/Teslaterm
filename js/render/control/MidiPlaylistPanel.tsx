@@ -3,6 +3,7 @@ import {Button, ButtonGroup, Form} from "react-bootstrap";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {MidiLibraryEntry, MidiPlaybackState, MidiPlayerState, MidiPolyphonyClass} from "../../common/MidiPlaylistTypes";
+import {MidiPreviewPlayer} from "../audio/MidiPreviewPlayer";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
 import {formatDuration, MidiTimeline} from "./MidiTimeline";
@@ -16,10 +17,29 @@ interface MidiPlaylistPanelState {
     playlist: string[];
     playerState: MidiPlayerState;
     autoPlay: boolean;
+    savedPlaylists: string[];
+    selectedSavedPlaylist: string;
+    previewingFilename?: string;
 }
 
-const SOURCE_TYPE = 'application/x-tt-midi-source';
-const VALUE_TYPE = 'application/x-tt-midi-value';
+type DragSource = 'library' | 'playlist';
+
+// A single standard "text/plain" payload is used for drag data (rather than a custom MIME type)
+// since custom dataTransfer types have been unreliable for getData() on drop in this app's
+// Electron/Chromium build - drag would visually work, but the payload came back empty on drop.
+function setDragPayload(ev: React.DragEvent, source: DragSource, value: string) {
+    ev.dataTransfer.effectAllowed = 'move';
+    ev.dataTransfer.setData('text/plain', JSON.stringify({source, value}));
+}
+
+function getDragPayload(ev: React.DragEvent): { source: DragSource, value: string } | undefined {
+    try {
+        const raw = ev.dataTransfer.getData('text/plain');
+        return raw ? JSON.parse(raw) : undefined;
+    } catch (e) {
+        return undefined;
+    }
+}
 
 function stripExtension(filename: string): string {
     return filename.replace(/\.midi?$/i, '');
@@ -45,6 +65,8 @@ const EMPTY_PLAYER_STATE: MidiPlayerState = {
 };
 
 export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiPlaylistPanelState> {
+    private readonly previewPlayer = new MidiPreviewPlayer();
+
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
         this.state = {
@@ -52,6 +74,8 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             library: [],
             playerState: EMPTY_PLAYER_STATE,
             playlist: [],
+            savedPlaylists: [],
+            selectedSavedPlaylist: '',
         };
     }
 
@@ -62,9 +86,28 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playerState,
             (playerState) => this.setState({playerState}),
         );
+        this.addIPCListener(
+            IPC_CONSTANTS_TO_RENDERER.midiPlaylist.savedPlaylists,
+            (savedPlaylists) => this.setState({savedPlaylists}),
+        );
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.previewFile, ({filename, bytes}) => {
+            if (this.state.previewingFilename !== filename) {
+                // A late response for a file we've since stopped/switched away from previewing.
+                return;
+            }
+            this.previewPlayer.play(new Uint8Array(bytes), () => {
+                this.setState((s) => (s.previewingFilename === filename ? {previewingFilename: undefined} : null));
+            });
+        });
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, () => this.onSongEnded());
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestSavedPlaylists, undefined);
+    }
+
+    public componentWillUnmount() {
+        super.componentWillUnmount();
+        this.previewPlayer.stop();
     }
 
     public render(): React.ReactNode {
@@ -105,6 +148,29 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
 
     private playFile(filename: string) {
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, filename);
+    }
+
+    private togglePreview(filename: string) {
+        if (this.state.previewingFilename === filename) {
+            this.previewPlayer.stop();
+            this.setState({previewingFilename: undefined});
+            return;
+        }
+        this.previewPlayer.stop();
+        this.setState({previewingFilename: filename});
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPreviewFile, filename);
+    }
+
+    private makePreviewButton(filename: string) {
+        const active = this.state.previewingFilename === filename;
+        return <Button
+            size={'sm'}
+            variant={active ? 'warning' : 'secondary'}
+            title={'Preview through this PC\'s speakers (not the coil)'}
+            onClick={() => this.togglePreview(filename)}
+        >
+            {active ? '🔊⏹' : '🔊'}
+        </Button>;
     }
 
     private makeNowPlaying() {
@@ -174,16 +240,14 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         key={entry.filename}
                         className={'tt-midi-row'}
                         draggable={true}
-                        onDragStart={(ev) => {
-                            ev.dataTransfer.setData(SOURCE_TYPE, 'library');
-                            ev.dataTransfer.setData(VALUE_TYPE, entry.filename);
-                        }}
+                        onDragStart={(ev) => setDragPayload(ev, 'library', entry.filename)}
                     >
                         {this.makeDot(entry.polyphony)}
                         <span className={'tt-midi-row-name'} title={entry.filename}>
                             {stripExtension(entry.filename)}
                         </span>
                         <span className={'tt-midi-row-duration'}>{formatDuration(entry.durationSeconds)}</span>
+                        {this.makePreviewButton(entry.filename)}
                         <Button
                             size={'sm'}
                             variant={'primary'}
@@ -214,7 +278,10 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
 
     private makePlaylistColumn() {
         return <div className={'tt-midi-list'}>
-            <div className={'tt-midi-list-header'}>Current playlist ({this.state.playlist.length})</div>
+            <div className={'tt-midi-list-header'}>
+                Current playlist ({this.state.playlist.length})
+                {this.makeSavedPlaylistBar()}
+            </div>
             <div
                 className={'tt-midi-list-body'}
                 onDragOver={(ev) => ev.preventDefault()}
@@ -230,10 +297,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         key={index}
                         className={'tt-midi-row' + (isCurrent ? ' tt-midi-row-current' : '')}
                         draggable={true}
-                        onDragStart={(ev) => {
-                            ev.dataTransfer.setData(SOURCE_TYPE, 'playlist');
-                            ev.dataTransfer.setData(VALUE_TYPE, String(index));
-                        }}
+                        onDragStart={(ev) => setDragPayload(ev, 'playlist', String(index))}
                         onDragOver={(ev) => {
                             ev.preventDefault();
                             ev.stopPropagation();
@@ -245,6 +309,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         <span className={'tt-midi-row-duration'}>
                             {formatDuration(entry?.durationSeconds || 0)}
                         </span>
+                        {this.makePreviewButton(filename)}
                         <Button
                             size={'sm'}
                             variant={'primary'}
@@ -268,19 +333,67 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         </div>;
     }
 
+    private makeSavedPlaylistBar() {
+        return <div className={'tt-midi-saved-bar'}>
+            <Form.Select
+                size={'sm'}
+                value={this.state.selectedSavedPlaylist}
+                onChange={(ev) => this.loadSavedPlaylist(ev.target.value)}
+            >
+                <option value={''}>-- unsaved / new --</option>
+                {this.state.savedPlaylists.map((name) => <option key={name} value={name}>{name}</option>)}
+            </Form.Select>
+            <Button size={'sm'} variant={'secondary'} onClick={() => this.saveCurrentPlaylistAs()}>
+                Save as...
+            </Button>
+            <Button
+                size={'sm'}
+                variant={'danger'}
+                disabled={!this.state.selectedSavedPlaylist}
+                onClick={() => this.deleteSavedPlaylist()}
+            >
+                Delete
+            </Button>
+        </div>;
+    }
+
+    private loadSavedPlaylist(name: string) {
+        this.setState({selectedSavedPlaylist: name});
+        if (name) {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.loadSavedPlaylist, name);
+        }
+    }
+
+    private saveCurrentPlaylistAs() {
+        const name = window.prompt('Save current playlist as:', this.state.selectedSavedPlaylist || '');
+        if (!name) {
+            return;
+        }
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.savePlaylistAs, name);
+        this.setState({selectedSavedPlaylist: name});
+    }
+
+    private deleteSavedPlaylist() {
+        const name = this.state.selectedSavedPlaylist;
+        if (!name || !window.confirm(`Delete the saved playlist "${name}"? The current playlist stays as-is.`)) {
+            return;
+        }
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteSavedPlaylist, name);
+        this.setState({selectedSavedPlaylist: ''});
+    }
+
     private onDropOnPlaylist(ev: React.DragEvent, targetIndex: number) {
         ev.preventDefault();
         ev.stopPropagation();
-        const source = ev.dataTransfer.getData(SOURCE_TYPE);
-        const value = ev.dataTransfer.getData(VALUE_TYPE);
-        if (!source) {
+        const payload = getDragPayload(ev);
+        if (!payload) {
             return;
         }
         const newPlaylist = [...this.state.playlist];
-        if (source === 'library') {
-            newPlaylist.splice(targetIndex, 0, value);
-        } else if (source === 'playlist') {
-            const fromIndex = Number(value);
+        if (payload.source === 'library') {
+            newPlaylist.splice(targetIndex, 0, payload.value);
+        } else {
+            const fromIndex = Number(payload.value);
             const [item] = newPlaylist.splice(fromIndex, 1);
             const adjustedTarget = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
             newPlaylist.splice(adjustedTarget, 0, item);
@@ -290,12 +403,11 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
 
     private onDropOnLibrary(ev: React.DragEvent) {
         ev.preventDefault();
-        const source = ev.dataTransfer.getData(SOURCE_TYPE);
-        const value = ev.dataTransfer.getData(VALUE_TYPE);
-        if (source !== 'playlist') {
+        const payload = getDragPayload(ev);
+        if (!payload || payload.source !== 'playlist') {
             return;
         }
-        this.removeFromPlaylist(Number(value));
+        this.removeFromPlaylist(Number(payload.value));
     }
 
     private addToPlaylist(filename: string) {

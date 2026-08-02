@@ -6,6 +6,7 @@ import {MidiLibraryEntry, MidiPolyphonyClass} from "../../common/MidiPlaylistTyp
 export const MIDI_DIR = "midis";
 const LIBRARY_INDEX_FILE = path.join(MIDI_DIR, "index.json");
 const PLAYLIST_FILE = path.join(MIDI_DIR, "playlist.json");
+const SAVED_PLAYLISTS_DIR = path.join(MIDI_DIR, "playlists");
 
 function ensureDir() {
     if (!fs.existsSync(MIDI_DIR)) {
@@ -186,4 +187,48 @@ export function listPlaylist(): string[] {
 export function setPlaylist(files: string[]) {
     ensureDir();
     fs.writeFileSync(PLAYLIST_FILE, JSON.stringify(files, null, 2));
+}
+
+function ensureSavedPlaylistsDir() {
+    if (!fs.existsSync(SAVED_PLAYLISTS_DIR)) {
+        fs.mkdirSync(SAVED_PLAYLISTS_DIR, {recursive: true});
+    }
+}
+
+function sanitizePlaylistName(name: string): string {
+    return name.replace(/[<>:"/\\|?*]/g, "_");
+}
+
+function savedPlaylistPath(name: string): string {
+    return path.join(SAVED_PLAYLISTS_DIR, sanitizePlaylistName(name) + ".json");
+}
+
+export function listSavedPlaylists(): string[] {
+    ensureSavedPlaylistsDir();
+    return fs.readdirSync(SAVED_PLAYLISTS_DIR)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => f.substring(0, f.length - 5))
+        .sort((a, b) => a.localeCompare(b));
+}
+
+export function savePlaylistAs(name: string, files: string[]) {
+    ensureSavedPlaylistsDir();
+    fs.writeFileSync(savedPlaylistPath(name), JSON.stringify({files, name}, null, 2));
+}
+
+export function loadSavedPlaylist(name: string): string[] {
+    try {
+        const info = JSON.parse(fs.readFileSync(savedPlaylistPath(name), {encoding: "utf-8"}));
+        return info.files || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+export function deleteSavedPlaylist(name: string) {
+    try {
+        fs.unlinkSync(savedPlaylistPath(name));
+    } catch (e) {
+        console.warn("Failed to delete saved playlist", name, e);
+    }
 }
