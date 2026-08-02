@@ -27,6 +27,7 @@ export function synthTypeToString(type: SynthType) {
 export const enum PlayerActivity {
     playing,
     idle,
+    paused,
 }
 
 export function synthTypeFor(fileType: MediaFileType): SynthType {

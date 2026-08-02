@@ -57,48 +57,200 @@
 
 .tt-midi-playlist-panel {
     flex: 1 1 auto;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 6px 10px;
+    gap: 8px;
+}
+
+.tt-midi-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: 0 0 auto;
+}
+
+.tt-midi-nowplaying {
+    flex: 0 0 auto;
+    border: 1px solid var(--bs-border-color, #444);
+    border-radius: 4px;
     padding: 6px 10px;
 }
 
-.tt-midi-import-row {
+.tt-midi-nowplaying-empty {
+    margin: 0;
+    opacity: 0.7;
+    font-style: italic;
+}
+
+.tt-midi-nowplaying-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 10px;
-    margin-bottom: 8px;
 }
 
-.tt-midi-name-row, .tt-midi-add-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 6px 0;
-}
-
-.tt-midi-name-row .form-control,
-.tt-midi-add-row .form-select,
-.tt-midi-playlist-section > .form-select {
-    max-width: 240px;
-}
-
-.tt-midi-track-table {
-    margin-bottom: 0;
-}
-
-.tt-midi-track-table td {
-    padding: 2px 6px;
-    vertical-align: middle;
-}
-
-.tt-midi-track-actions {
-    display: flex;
-    gap: 4px;
+.tt-midi-nowplaying-title {
+    font-weight: bold;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.tt-midi-track-actions .btn {
+.tt-midi-timeline {
+    margin-top: 6px;
+}
+
+.tt-midi-timeline-track {
+    position: relative;
+    height: 14px;
+    background: rgba(128, 128, 128, 0.25);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.tt-midi-timeline-range {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(13, 110, 253, 0.35);
+}
+
+.tt-midi-timeline-playhead {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--bs-body-color, #fff);
+    pointer-events: none;
+}
+
+.tt-midi-timeline-handle {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 8px;
+    margin-left: -4px;
+    cursor: ew-resize;
+    border-radius: 2px;
+}
+
+.tt-midi-timeline-handle-in {
+    background: #28a745;
+}
+
+.tt-midi-timeline-handle-out {
+    background: #dc3545;
+}
+
+.tt-midi-timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    opacity: 0.75;
+    margin-top: 2px;
+}
+
+.tt-midi-lists {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.tt-midi-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--bs-border-color, #444);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.tt-midi-list-header {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    font-weight: bold;
+    border-bottom: 1px solid var(--bs-border-color, #444);
+    background: rgba(128, 128, 128, 0.1);
+}
+
+.tt-midi-list-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.tt-midi-list-empty {
+    opacity: 0.7;
+    font-style: italic;
+    font-size: 0.85rem;
+    padding: 6px;
+    margin: 0;
+}
+
+.tt-midi-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+    cursor: grab;
+}
+
+.tt-midi-row:last-child {
+    border-bottom: none;
+}
+
+.tt-midi-row-current {
+    background: rgba(13, 110, 253, 0.15);
+}
+
+.tt-midi-row-name {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tt-midi-row-duration {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+    font-size: 0.85rem;
+    min-width: 2.5em;
+    text-align: right;
+}
+
+.tt-midi-row .btn {
+    flex: 0 0 auto;
     padding: 1px 6px;
     font-size: 0.75rem;
+}
+
+.tt-midi-dot {
+    flex: 0 0 auto;
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #888;
+}
+
+.tt-midi-dot-mono {
+    background: #28a745;
+}
+
+.tt-midi-dot-low {
+    background: #ffc107;
+}
+
+.tt-midi-dot-high {
+    background: #dc3545;
 }
 
 .tt-freq-panel {

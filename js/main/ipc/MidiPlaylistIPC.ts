@@ -4,15 +4,14 @@ import {DroppedFile, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMai
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {
     deleteMidiFile,
-    deletePlaylist,
     getMidiFilePath,
     importMidiFile,
-    listMidiFiles,
-    listPlaylists,
-    renamePlaylist,
-    savePlaylist,
+    listLibrary,
+    listPlaylist,
+    setPlaylist,
 } from "../media/MidiLibrary";
 import {loadMediaFile, media_state, onSongEnded} from "../media/media_player";
+import {getMidiPlayerState, seekMidi, setInPoint, setOutPoint} from "../midi/midi";
 import {mainWindow} from "../main_electron";
 import {MainIPC} from "./IPCProvider";
 
@@ -22,26 +21,28 @@ export class MidiPlaylistIPC {
     public constructor(processIPC: MainIPC) {
         this.processIPC = processIPC;
         processIPC.onAsync(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestImport, () => this.importFiles());
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestFileList, () => this.sendFileList());
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteFile, (filename) => {
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, () => this.sendLibrary());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteLibraryFile, (filename) => {
             deleteMidiFile(filename);
-            this.sendFileList();
+            this.sendLibrary();
+            this.sendPlaylist();
         });
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylistList, () => this.sendPlaylistList());
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.savePlaylist, (info) => {
-            savePlaylist(info);
-            this.sendPlaylistList();
-        });
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deletePlaylist, (name) => {
-            deletePlaylist(name);
-            this.sendPlaylistList();
-        });
-        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.renamePlaylist, ({oldName, newName}) => {
-            renamePlaylist(oldName, newName);
-            this.sendPlaylistList();
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, () => this.sendPlaylist());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setPlaylist, (files) => {
+            setPlaylist(files);
+            this.sendPlaylist();
         });
         processIPC.onAsync(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, (filename) => this.playFile(filename));
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, () => media_state.pausePlaying());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, () => media_state.resumePlaying());
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, (seconds) => seekMidi(seconds));
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, (seconds) => setInPoint(seconds));
+        processIPC.on(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, (seconds) => setOutPoint(seconds));
         onSongEnded(() => this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, undefined));
+    }
+
+    public tick100() {
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playerState, getMidiPlayerState());
     }
 
     private async importFiles() {
@@ -54,15 +55,15 @@ export class MidiPlaylistIPC {
                 importMidiFile(filePath);
             }
         }
-        this.sendFileList();
+        this.sendLibrary();
     }
 
-    private sendFileList() {
-        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.fileList, listMidiFiles());
+    private sendLibrary() {
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.library, listLibrary());
     }
 
-    private sendPlaylistList() {
-        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playlistList, listPlaylists());
+    private sendPlaylist() {
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playlist, listPlaylist());
     }
 
     private async playFile(filename: string) {

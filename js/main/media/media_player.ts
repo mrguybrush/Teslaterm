@@ -72,6 +72,8 @@ export class PlayerState {
     private typeInt: MediaFileType;
     private startCallback: (() => Promise<void>) | undefined = undefined;
     private stopCallback: (() => void) | undefined = undefined;
+    private pauseCallback: (() => void) | undefined = undefined;
+    private resumeCallback: (() => void) | undefined = undefined;
     private titleInt: string | undefined;
     private stateInt: PlayerActivity = PlayerActivity.idle;
     private readonly listeners: Array<(state: PlayerActivity) => any> = [];
@@ -89,12 +91,16 @@ export class PlayerState {
         title: string,
         startCallback?: () => Promise<void>,
         stopCallback?: () => void,
+        pauseCallback?: () => void,
+        resumeCallback?: () => void,
     ) {
         this.titleInt = title;
         this.typeInt = type;
         this.currentFileInt = file;
         this.startCallback = startCallback;
         this.stopCallback = stopCallback;
+        this.pauseCallback = pauseCallback;
+        this.resumeCallback = resumeCallback;
         this.progress = 0;
         const prefix = type === MediaFileType.midi ? 'MIDI file: ' : "SID file: ";
         ipcs.menu.setMediaName(prefix + title);
@@ -130,7 +136,7 @@ export class PlayerState {
     }
 
     public stopPlaying(): void {
-        if (this.currentFile === null || this.state !== PlayerActivity.playing) {
+        if (this.currentFile === null || this.state === PlayerActivity.idle) {
             ipcs.misc.openGenericToast("Media", "No media file is currently playing", ToastSeverity.info, "media");
             return;
         }
@@ -140,6 +146,29 @@ export class PlayerState {
         this.setState(PlayerActivity.idle);
         ipcs.misc.updateMediaInfo();
         scripting.onMediaStopped();
+    }
+
+    public pausePlaying(): void {
+        if (this.state !== PlayerActivity.playing) {
+            return;
+        }
+        if (this.pauseCallback) {
+            this.pauseCallback();
+            this.setState(PlayerActivity.paused);
+        } else {
+            // Media types that don't support pausing just stop instead.
+            this.stopPlaying();
+        }
+    }
+
+    public resumePlaying(): void {
+        if (this.state !== PlayerActivity.paused) {
+            return;
+        }
+        if (this.resumeCallback) {
+            this.resumeCallback();
+        }
+        this.setState(PlayerActivity.playing);
     }
 
     public addUpdateCallback(mediaUpdateCallback: (state: PlayerActivity) => any) {

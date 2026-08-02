@@ -1,7 +1,7 @@
 import {CoilID, coilSuffix, UD3AlarmLevel} from "./constants";
 import {FlightSessionInfo, InitialFRState, ParsedEvent} from "./FlightRecorderTypes";
 import {MediaFileType, PlayerActivity} from './MediaTypes';
-import {MidiPlaylistInfo} from "./MidiPlaylistTypes";
+import {MidiLibraryEntry, MidiPlayerState} from "./MidiPlaylistTypes";
 import {AllFaders, MixerLayer} from "./MixerTypes";
 import {SingleConnectionOptions} from "./SingleConnectionOptions";
 import {TTConfig} from "./TTConfig";
@@ -38,8 +38,9 @@ export const IPC_CONSTANTS_TO_RENDERER = {
         ud3State: makeKey<[CoilID, UD3State]>('menu-ud3-state'),
     },
     midiPlaylist: {
-        fileList: makeKey<string[]>('midi-playlist-files'),
-        playlistList: makeKey<MidiPlaylistInfo[]>('midi-playlist-playlists'),
+        library: makeKey<MidiLibraryEntry[]>('midi-playlist-library'),
+        playerState: makeKey<MidiPlayerState>('midi-playlist-player-state'),
+        playlist: makeKey<string[]>('midi-playlist-playlist'),
         songEnded: makeKey<undefined>('midi-playlist-song-ended'),
     },
     openToastOn: makeKey<[ToastData, CoilID?]>('open-toast-coil'),

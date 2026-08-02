@@ -2,6 +2,7 @@ import * as MidiPlayer from "midi-player-js";
 import {CoilID} from "../../common/constants";
 import {ChannelID} from "../../common/IPCConstantsToRenderer";
 import {MediaFileType, PlayerActivity} from "../../common/MediaTypes";
+import {MidiPlaybackState, MidiPlayerState} from "../../common/MidiPlaylistTypes";
 import {forEachCoil, forEachCoilAsync, getConnectionState, hasUD3Connection} from "../connection/connection";
 import {Connected} from "../connection/state/Connected";
 import {ipcs} from "../ipc/IPCProvider";
@@ -17,7 +18,55 @@ export const player = new MidiPlayer.Player(
     ev => processMidiFromPlayer(ev).catch(err => console.error("playing MIDI", err)),
 );
 
+let currentDurationSeconds = 0;
+let inPointSeconds = 0;
+let outPointSeconds = 0;
+
+/** Called once a new file has been loaded into `player`; resets the trim range to the full song. */
+export function setMidiDuration(seconds: number) {
+    currentDurationSeconds = seconds;
+    inPointSeconds = 0;
+    outPointSeconds = seconds;
+}
+
+export function setInPoint(seconds: number) {
+    inPointSeconds = Math.max(0, Math.min(seconds, outPointSeconds));
+}
+
+export function setOutPoint(seconds: number) {
+    outPointSeconds = Math.min(currentDurationSeconds, Math.max(seconds, inPointSeconds));
+}
+
+export function getCurrentSeconds(): number {
+    if (!player.tracks) {
+        return 0;
+    }
+    return Math.max(0, player.getSongTime() - player.getSongTimeRemaining());
+}
+
+export function getMidiPlayerState(): MidiPlayerState {
+    const loaded = media_state.type === MediaFileType.midi && !!media_state.currentFile;
+    let state: MidiPlaybackState;
+    if (!loaded || media_state.state === PlayerActivity.idle) {
+        state = MidiPlaybackState.stopped;
+    } else if (media_state.state === PlayerActivity.paused) {
+        state = MidiPlaybackState.paused;
+    } else {
+        state = MidiPlaybackState.playing;
+    }
+    return {
+        durationSeconds: currentDurationSeconds,
+        filename: loaded ? media_state.currentFile.name : undefined,
+        inPointSeconds,
+        outPointSeconds,
+        positionSeconds: loaded ? getCurrentSeconds() : 0,
+        state,
+    };
+}
+
 export async function startCurrentMidiFile() {
+    stopMidiOutput();
+    player.skipToSeconds(inPointSeconds);
     player.play();
     ipcs.misc.updateMediaInfo();
 }
@@ -26,6 +75,29 @@ export function stopMidiFile() {
     player.stop();
     stopMidiOutput();
     scripting.onMediaStopped();
+}
+
+export function pauseCurrentMidiFile() {
+    stopMidiOutput();
+    player.pause();
+    ipcs.misc.updateMediaInfo();
+}
+
+export function resumeCurrentMidiFile() {
+    player.play();
+    ipcs.misc.updateMediaInfo();
+}
+
+/** Seeks the currently loaded MIDI file, keeping playback going if it was already playing. */
+export function seekMidi(seconds: number) {
+    const clamped = Math.max(0, Math.min(seconds, currentDurationSeconds));
+    const wasPlaying = player.isPlaying();
+    stopMidiOutput();
+    player.skipToSeconds(clamped);
+    if (wasPlaying) {
+        player.play();
+    }
+    ipcs.misc.updateMediaInfo();
 }
 
 export function stopMidiOutput() {
@@ -142,6 +214,10 @@ export function update(): void {
             ++i;
             received_event = false;
             player.playLoop(false);
+        }
+        if (media_state.type === MediaFileType.midi && outPointSeconds > 0 && getCurrentSeconds() >= outPointSeconds) {
+            media_state.stopPlaying();
+            notifySongEnded();
         }
     } else if (media_state.state === PlayerActivity.playing && media_state.type === MediaFileType.midi) {
         media_state.stopPlaying();

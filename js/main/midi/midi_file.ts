@@ -5,7 +5,15 @@ import {getMixer, isMulticoil} from "../connection/connection";
 import {ipcs} from "../ipc/IPCProvider";
 import {media_state} from "../media/media_player";
 import {MixerState} from "../media/mixer/MixerState";
-import {player, startCurrentMidiFile, stopMidiFile, VOLUME_CC_KEY} from "./midi";
+import {
+    pauseCurrentMidiFile,
+    player,
+    resumeCurrentMidiFile,
+    setMidiDuration,
+    startCurrentMidiFile,
+    stopMidiFile,
+    VOLUME_CC_KEY,
+} from "./midi";
 
 // TODO for some reason MidiPlayer::getEvents() is a 2-dim array despite the signature?
 function fixBrokenArray<T>(reallyTwoDimArray: T[]): T[] {
@@ -98,6 +106,7 @@ function updateMixer(mixer: MixerState) {
 export async function loadMidiFile(file: DroppedFile) {
     (player as any).defaultTempo = 120;
     player.loadArrayBuffer(new Uint8Array(file.bytes));
+    setMidiDuration(player.getSongTime());
     const mixer = getMixer();
     if (mixer) {
         updateMixer(mixer);
@@ -109,5 +118,7 @@ export async function loadMidiFile(file: DroppedFile) {
         file.name.substring(0, file.name.length - 4),
         startCurrentMidiFile,
         stopMidiFile,
+        pauseCurrentMidiFile,
+        resumeCurrentMidiFile,
     );
 }

@@ -1,5 +1,4 @@
 import {MixerLayer, VolumeKey, VolumeUpdate} from "./MixerTypes";
-import {MidiPlaylistInfo} from "./MidiPlaylistTypes";
 import {MultiConnectionOptions, SingleConnectionOptions} from './SingleConnectionOptions';
 import {CoilID, coilSuffix} from "./constants";
 import {ConnectionPreset, FaderID} from "./IPCConstantsToRenderer";
@@ -45,14 +44,17 @@ export const IPC_CONSTANTS_TO_MAIN = {
     loadFile: makeKey<DroppedFile[]>('load-file'),
     loadFlightRecording: makeKey<number[]>('load-flight-recording'),
     midiPlaylist: {
-        deleteFile: makeKey<string>('midi-playlist-delete-file'),
-        deletePlaylist: makeKey<string>('midi-playlist-delete'),
+        deleteLibraryFile: makeKey<string>('midi-playlist-delete-file'),
+        pause: makeKey<undefined>('midi-playlist-pause'),
         playFile: makeKey<string>('midi-playlist-play-file'),
-        renamePlaylist: makeKey<{ oldName: string, newName: string }>('midi-playlist-rename'),
-        requestFileList: makeKey<undefined>('midi-playlist-file-list-request'),
         requestImport: makeKey<undefined>('midi-playlist-import'),
-        requestPlaylistList: makeKey<undefined>('midi-playlist-list-request'),
-        savePlaylist: makeKey<MidiPlaylistInfo>('midi-playlist-save'),
+        requestLibrary: makeKey<undefined>('midi-playlist-library-request'),
+        requestPlaylist: makeKey<undefined>('midi-playlist-list-request'),
+        resume: makeKey<undefined>('midi-playlist-resume'),
+        seek: makeKey<number>('midi-playlist-seek'),
+        setInPoint: makeKey<number>('midi-playlist-set-in-point'),
+        setOutPoint: makeKey<number>('midi-playlist-set-out-point'),
+        setPlaylist: makeKey<string[]>('midi-playlist-set-playlist'),
     },
     menu: {
         startMedia: makeKey<undefined>('start-media'),

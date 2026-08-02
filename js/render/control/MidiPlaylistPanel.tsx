@@ -1,306 +1,330 @@
 import React from "react";
-import {Button, Form, Modal, Table} from "react-bootstrap";
+import {Button, ButtonGroup, Form} from "react-bootstrap";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
-import {MidiPlaylistInfo} from "../../common/MidiPlaylistTypes";
+import {MidiLibraryEntry, MidiPlaybackState, MidiPlayerState, MidiPolyphonyClass} from "../../common/MidiPlaylistTypes";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
+import {formatDuration, MidiTimeline} from "./MidiTimeline";
 
 export interface MidiPlaylistPanelProps {
     disabled: boolean;
 }
 
 interface MidiPlaylistPanelState {
-    libraryFiles: string[];
-    playlists: MidiPlaylistInfo[];
-    selectedPlaylistName?: string;
-    editingName: string;
-    editingFiles: string[];
-    fileToAdd: string;
-    pendingDelete: boolean;
+    library: MidiLibraryEntry[];
+    playlist: string[];
+    playerState: MidiPlayerState;
     autoPlay: boolean;
-    currentlyPlayingFile?: string;
 }
 
-const NEW_PLAYLIST_KEY = "__new__";
+const SOURCE_TYPE = 'application/x-tt-midi-source';
+const VALUE_TYPE = 'application/x-tt-midi-value';
+
+function stripExtension(filename: string): string {
+    return filename.replace(/\.midi?$/i, '');
+}
+
+function polyphonyLabel(polyphony: MidiPolyphonyClass): string {
+    switch (polyphony) {
+        case 'mono':
+            return 'mostly monophonic';
+        case 'low':
+            return 'up to 2-3 notes at once';
+        case 'high':
+            return 'many notes at once';
+    }
+}
+
+const EMPTY_PLAYER_STATE: MidiPlayerState = {
+    durationSeconds: 0,
+    inPointSeconds: 0,
+    outPointSeconds: 0,
+    positionSeconds: 0,
+    state: MidiPlaybackState.stopped,
+};
 
 export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiPlaylistPanelState> {
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
         this.state = {
             autoPlay: false,
-            editingFiles: [],
-            editingName: "",
-            fileToAdd: "",
-            libraryFiles: [],
-            pendingDelete: false,
-            playlists: [],
-            selectedPlaylistName: undefined,
+            library: [],
+            playerState: EMPTY_PLAYER_STATE,
+            playlist: [],
         };
     }
 
     public componentDidMount() {
-        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.fileList, (files) => {
-            this.setState((s) => ({
-                fileToAdd: files.includes(s.fileToAdd) ? s.fileToAdd : (files[0] || ""),
-                libraryFiles: files,
-            }));
-        });
-        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playlistList, (playlists) => {
-            this.setState({playlists});
-        });
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.library, (library) => this.setState({library}));
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playlist, (playlist) => this.setState({playlist}));
+        this.addIPCListener(
+            IPC_CONSTANTS_TO_RENDERER.midiPlaylist.playerState,
+            (playerState) => this.setState({playerState}),
+        );
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, () => this.onSongEnded());
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestFileList, undefined);
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylistList, undefined);
-    }
-
-    private onSongEnded() {
-        if (!this.state.autoPlay || !this.state.currentlyPlayingFile) {
-            return;
-        }
-        const index = this.state.editingFiles.indexOf(this.state.currentlyPlayingFile);
-        if (index >= 0 && index + 1 < this.state.editingFiles.length) {
-            this.playTrack(this.state.editingFiles[index + 1]);
-        } else {
-            this.setState({currentlyPlayingFile: undefined});
-        }
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
     }
 
     public render(): React.ReactNode {
-        return <div className={"tt-midi-playlist-panel"}>
-            {this.makeImportSection()}
-            {this.makePlaylistSection()}
-            {this.makeDeleteModal()}
+        return <div className={'tt-midi-playlist-panel'}>
+            <div className={'tt-midi-toolbar'}>
+                <Button
+                    size={'sm'}
+                    onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestImport, undefined)}
+                >
+                    Import MIDI files...
+                </Button>
+                <Form.Check
+                    type={'checkbox'}
+                    id={'midi-auto-play'}
+                    label={'Auto-play next in playlist'}
+                    checked={this.state.autoPlay}
+                    onChange={(ev) => this.setState({autoPlay: ev.target.checked})}
+                />
+            </div>
+            {this.makeNowPlaying()}
+            <div className={'tt-midi-lists'}>
+                {this.makeLibraryColumn()}
+                {this.makePlaylistColumn()}
+            </div>
         </div>;
     }
 
-    private makeImportSection() {
-        return <div className={"tt-midi-import-row"}>
-            <Button
-                size={"sm"}
-                onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestImport, undefined)}
-            >
-                Import MIDI files...
-            </Button>
-            <Button
-                size={"sm"}
-                variant={"secondary"}
+    private onSongEnded() {
+        if (!this.state.autoPlay) {
+            return;
+        }
+        const finished = this.state.playerState.filename;
+        const index = this.state.playlist.indexOf(finished);
+        if (index >= 0 && index + 1 < this.state.playlist.length) {
+            this.playFile(this.state.playlist[index + 1]);
+        }
+    }
+
+    private playFile(filename: string) {
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, filename);
+    }
+
+    private makeNowPlaying() {
+        const ps = this.state.playerState;
+        if (ps.state === MidiPlaybackState.stopped) {
+            return <div className={'tt-midi-nowplaying tt-midi-nowplaying-empty'}>No song playing</div>;
+        }
+        return <div className={'tt-midi-nowplaying'}>
+            <div className={'tt-midi-nowplaying-row'}>
+                <span className={'tt-midi-nowplaying-title'}>{stripExtension(ps.filename || '')}</span>
+                <ButtonGroup size={'sm'}>
+                    {ps.state === MidiPlaybackState.playing
+                        ? <Button
+                            variant={'secondary'}
+                            disabled={this.props.disabled}
+                            onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.pause, undefined)}
+                        >
+                            ⏸ Pause
+                        </Button>
+                        : <Button
+                            variant={'secondary'}
+                            disabled={this.props.disabled}
+                            onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.resume, undefined)}
+                        >
+                            ▶ Resume
+                        </Button>}
+                    <Button
+                        variant={'secondary'}
+                        disabled={this.props.disabled}
+                        onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.menu.stopMedia, undefined)}
+                    >
+                        ⏹ Stop
+                    </Button>
+                </ButtonGroup>
+            </div>
+            <MidiTimeline
+                positionSeconds={ps.positionSeconds}
+                durationSeconds={ps.durationSeconds}
+                inPointSeconds={ps.inPointSeconds}
+                outPointSeconds={ps.outPointSeconds}
                 disabled={this.props.disabled}
-                onClick={() => this.stopPlayback()}
-            >
-                Stop
-            </Button>
-            <span className={"tt-midi-library-count"}>{this.state.libraryFiles.length} file(s) in library</span>
-            <Form.Check
-                type={"checkbox"}
-                id={"midi-auto-play"}
-                label={"Auto-play next"}
-                checked={this.state.autoPlay}
-                onChange={(ev) => this.setState({autoPlay: ev.target.checked})}
+                onSeek={(s) => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.seek, s)}
+                onSetInPoint={(s) => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setInPoint, s)}
+                onSetOutPoint={(s) => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, s)}
             />
         </div>;
     }
 
-    private selectPlaylist(name: string) {
-        if (name === NEW_PLAYLIST_KEY || !name) {
-            this.setState({editingFiles: [], editingName: "", selectedPlaylistName: undefined});
-            return;
-        }
-        const playlist = this.state.playlists.find((p) => p.name === name);
-        if (playlist) {
-            this.setState({
-                editingFiles: [...playlist.files],
-                editingName: playlist.name,
-                selectedPlaylistName: playlist.name,
-            });
-        }
+    private makeDot(polyphony: MidiPolyphonyClass) {
+        return <span
+            className={`tt-midi-dot tt-midi-dot-${polyphony}`}
+            title={polyphonyLabel(polyphony)}
+        />;
     }
 
-    private makePlaylistSection() {
-        const canSave = this.state.editingName.trim().length > 0;
-        const canRename = this.state.selectedPlaylistName !== undefined &&
-            this.state.editingName.trim().length > 0 &&
-            this.state.editingName.trim() !== this.state.selectedPlaylistName;
-        return <div className={"tt-midi-playlist-section"}>
-            <Form.Label>Playlist</Form.Label>
-            <Form.Select
-                size={"sm"}
-                value={this.state.selectedPlaylistName || NEW_PLAYLIST_KEY}
-                onChange={(ev) => this.selectPlaylist(ev.target.value)}
+    private makeLibraryColumn() {
+        return <div className={'tt-midi-list'}>
+            <div className={'tt-midi-list-header'}>Archive ({this.state.library.length})</div>
+            <div
+                className={'tt-midi-list-body'}
+                onDragOver={(ev) => ev.preventDefault()}
+                onDrop={(ev) => this.onDropOnLibrary(ev)}
             >
-                <option value={NEW_PLAYLIST_KEY}>-- New playlist --</option>
-                {this.state.playlists.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-            </Form.Select>
-            <div className={"tt-midi-name-row"}>
-                <Form.Control
-                    size={"sm"}
-                    placeholder={"Playlist name"}
-                    value={this.state.editingName}
-                    onChange={(ev) => this.setState({editingName: ev.target.value})}
-                />
-                <Button size={"sm"} disabled={!canSave} onClick={() => this.savePlaylist()}>Save</Button>
-                <Button size={"sm"} disabled={!canRename} onClick={() => this.renamePlaylist()}>Rename</Button>
-                <Button
-                    size={"sm"}
-                    variant={"danger"}
-                    disabled={this.state.selectedPlaylistName === undefined}
-                    onClick={() => this.setState({pendingDelete: true})}
-                >
-                    Delete
-                </Button>
+                {this.state.library.length === 0 && <p className={'tt-midi-list-empty'}>No MIDI files imported yet.</p>}
+                {this.state.library.map((entry) => (
+                    <div
+                        key={entry.filename}
+                        className={'tt-midi-row'}
+                        draggable={true}
+                        onDragStart={(ev) => {
+                            ev.dataTransfer.setData(SOURCE_TYPE, 'library');
+                            ev.dataTransfer.setData(VALUE_TYPE, entry.filename);
+                        }}
+                    >
+                        {this.makeDot(entry.polyphony)}
+                        <span className={'tt-midi-row-name'} title={entry.filename}>
+                            {stripExtension(entry.filename)}
+                        </span>
+                        <span className={'tt-midi-row-duration'}>{formatDuration(entry.durationSeconds)}</span>
+                        <Button
+                            size={'sm'}
+                            variant={'primary'}
+                            disabled={this.props.disabled}
+                            onClick={() => this.playFile(entry.filename)}
+                        >
+                            ▶
+                        </Button>
+                        <Button
+                            size={'sm'}
+                            variant={'secondary'}
+                            onClick={() => this.addToPlaylist(entry.filename)}
+                        >
+                            +
+                        </Button>
+                        <Button
+                            size={'sm'}
+                            variant={'danger'}
+                            onClick={() => this.deleteLibraryFile(entry.filename)}
+                        >
+                            🗑
+                        </Button>
+                    </div>
+                ))}
             </div>
-            <div className={"tt-midi-add-row"}>
-                <Form.Select
-                    size={"sm"}
-                    value={this.state.fileToAdd}
-                    onChange={(ev) => this.setState({fileToAdd: ev.target.value})}
-                >
-                    {this.state.libraryFiles.map((f) => <option key={f} value={f}>{f}</option>)}
-                </Form.Select>
-                <Button
-                    size={"sm"}
-                    disabled={!this.state.fileToAdd}
-                    onClick={() => this.addTrack(this.state.fileToAdd)}
-                >
-                    Add
-                </Button>
-                <Button
-                    size={"sm"}
-                    variant={"danger"}
-                    disabled={!this.state.fileToAdd}
-                    onClick={() => this.deleteLibraryFile()}
-                >
-                    Remove
-                </Button>
-            </div>
-            {this.makeTrackTable()}
         </div>;
     }
 
-    private addTrack(filename: string) {
-        if (!filename) {
-            return;
-        }
-        this.setState((s) => ({editingFiles: [...s.editingFiles, filename], fileToAdd: filename}));
-    }
-
-    private deleteLibraryFile() {
-        if (!this.state.fileToAdd) {
-            return;
-        }
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteFile, this.state.fileToAdd);
-    }
-
-    private stopPlayback() {
-        this.setState({currentlyPlayingFile: undefined});
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.menu.stopMedia, undefined);
-    }
-
-    private removeTrack(index: number) {
-        this.setState((s) => ({editingFiles: s.editingFiles.filter((_, i) => i !== index)}));
-    }
-
-    private moveTrack(index: number, delta: number) {
-        const newIndex = index + delta;
-        if (newIndex < 0 || newIndex >= this.state.editingFiles.length) {
-            return;
-        }
-        const newFiles = [...this.state.editingFiles];
-        [newFiles[index], newFiles[newIndex]] = [newFiles[newIndex], newFiles[index]];
-        this.setState({editingFiles: newFiles});
-    }
-
-    private playTrack(filename: string) {
-        this.setState({currentlyPlayingFile: filename});
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.playFile, filename);
-    }
-
-    private makeTrackTable() {
-        if (this.state.editingFiles.length === 0) {
-            return <p>No tracks in this playlist yet.</p>;
-        }
-        return <Table bordered size={"sm"} className={"tt-midi-track-table"}>
-            <tbody>
-            {this.state.editingFiles.map((file, index) => (
-                <tr key={index}>
-                    <td>{file}</td>
-                    <td className={"tt-midi-track-actions"}>
+    private makePlaylistColumn() {
+        return <div className={'tt-midi-list'}>
+            <div className={'tt-midi-list-header'}>Current playlist ({this.state.playlist.length})</div>
+            <div
+                className={'tt-midi-list-body'}
+                onDragOver={(ev) => ev.preventDefault()}
+                onDrop={(ev) => this.onDropOnPlaylist(ev, this.state.playlist.length)}
+            >
+                {this.state.playlist.length === 0 &&
+                    <p className={'tt-midi-list-empty'}>Drag songs here, or use the + button on the left.</p>}
+                {this.state.playlist.map((filename, index) => {
+                    const entry = this.state.library.find((e) => e.filename === filename);
+                    const isCurrent = this.state.playerState.filename === filename &&
+                        this.state.playerState.state !== MidiPlaybackState.stopped;
+                    return <div
+                        key={index}
+                        className={'tt-midi-row' + (isCurrent ? ' tt-midi-row-current' : '')}
+                        draggable={true}
+                        onDragStart={(ev) => {
+                            ev.dataTransfer.setData(SOURCE_TYPE, 'playlist');
+                            ev.dataTransfer.setData(VALUE_TYPE, String(index));
+                        }}
+                        onDragOver={(ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                        }}
+                        onDrop={(ev) => this.onDropOnPlaylist(ev, index)}
+                    >
+                        {entry ? this.makeDot(entry.polyphony) : <span className={'tt-midi-dot'}/>}
+                        <span className={'tt-midi-row-name'} title={filename}>{stripExtension(filename)}</span>
+                        <span className={'tt-midi-row-duration'}>
+                            {formatDuration(entry?.durationSeconds || 0)}
+                        </span>
                         <Button
-                            size={"sm"}
-                            variant={"primary"}
+                            size={'sm'}
+                            variant={'primary'}
                             disabled={this.props.disabled}
-                            onClick={() => this.playTrack(file)}
+                            onClick={() => this.playFile(filename)}
                         >
-                            Play
+                            ▶
                         </Button>
-                        <Button
-                            size={"sm"}
-                            variant={"secondary"}
-                            disabled={this.props.disabled}
-                            onClick={() => this.stopPlayback()}
-                        >
-                            Stop
-                        </Button>
-                        <Button size={"sm"} variant={"secondary"} onClick={() => this.moveTrack(index, -1)}>
+                        <Button size={'sm'} variant={'secondary'} onClick={() => this.moveInPlaylist(index, -1)}>
                             ▲
                         </Button>
-                        <Button size={"sm"} variant={"secondary"} onClick={() => this.moveTrack(index, 1)}>
+                        <Button size={'sm'} variant={'secondary'} onClick={() => this.moveInPlaylist(index, 1)}>
                             ▼
                         </Button>
-                        <Button size={"sm"} variant={"danger"} onClick={() => this.removeTrack(index)}>
-                            Remove
+                        <Button size={'sm'} variant={'danger'} onClick={() => this.removeFromPlaylist(index)}>
+                            ✕
                         </Button>
-                    </td>
-                </tr>
-            ))}
-            </tbody>
-        </Table>;
+                    </div>;
+                })}
+            </div>
+        </div>;
     }
 
-    private savePlaylist() {
-        const name = this.state.editingName.trim();
-        if (!name) {
+    private onDropOnPlaylist(ev: React.DragEvent, targetIndex: number) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const source = ev.dataTransfer.getData(SOURCE_TYPE);
+        const value = ev.dataTransfer.getData(VALUE_TYPE);
+        if (!source) {
             return;
         }
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.savePlaylist, {files: this.state.editingFiles, name});
-        this.setState({selectedPlaylistName: name});
+        const newPlaylist = [...this.state.playlist];
+        if (source === 'library') {
+            newPlaylist.splice(targetIndex, 0, value);
+        } else if (source === 'playlist') {
+            const fromIndex = Number(value);
+            const [item] = newPlaylist.splice(fromIndex, 1);
+            const adjustedTarget = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+            newPlaylist.splice(adjustedTarget, 0, item);
+        }
+        this.setPlaylist(newPlaylist);
     }
 
-    private renamePlaylist() {
-        const newName = this.state.editingName.trim();
-        if (!this.state.selectedPlaylistName || !newName) {
+    private onDropOnLibrary(ev: React.DragEvent) {
+        ev.preventDefault();
+        const source = ev.dataTransfer.getData(SOURCE_TYPE);
+        const value = ev.dataTransfer.getData(VALUE_TYPE);
+        if (source !== 'playlist') {
             return;
         }
-        processIPC.send(
-            IPC_CONSTANTS_TO_MAIN.midiPlaylist.renamePlaylist,
-            {newName, oldName: this.state.selectedPlaylistName},
-        );
-        this.setState({selectedPlaylistName: newName});
+        this.removeFromPlaylist(Number(value));
     }
 
-    private makeDeleteModal() {
-        const cancel = () => this.setState({pendingDelete: false});
-        const confirmDelete = () => {
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deletePlaylist, this.state.selectedPlaylistName);
-            this.setState({
-                editingFiles: [],
-                editingName: "",
-                pendingDelete: false,
-                selectedPlaylistName: undefined,
-            });
-        };
-        return <Modal show={this.state.pendingDelete} onHide={cancel}>
-            <Modal.Header>
-                <Modal.Title>Delete playlist</Modal.Title>
-            </Modal.Header>
-            <Modal.Body>
-                The playlist "{this.state.selectedPlaylistName}" will be permanently deleted. The MIDI files
-                themselves are not affected.
-            </Modal.Body>
-            <Modal.Footer>
-                <Button variant="secondary" onClick={cancel}>Cancel</Button>
-                <Button variant="danger" onClick={confirmDelete}>Delete</Button>
-            </Modal.Footer>
-        </Modal>;
+    private addToPlaylist(filename: string) {
+        this.setPlaylist([...this.state.playlist, filename]);
+    }
+
+    private removeFromPlaylist(index: number) {
+        this.setPlaylist(this.state.playlist.filter((_, i) => i !== index));
+    }
+
+    private moveInPlaylist(index: number, delta: number) {
+        const newIndex = index + delta;
+        if (newIndex < 0 || newIndex >= this.state.playlist.length) {
+            return;
+        }
+        const newPlaylist = [...this.state.playlist];
+        [newPlaylist[index], newPlaylist[newIndex]] = [newPlaylist[newIndex], newPlaylist[index]];
+        this.setPlaylist(newPlaylist);
+    }
+
+    private setPlaylist(files: string[]) {
+        this.setState({playlist: files});
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setPlaylist, files);
+    }
+
+    private deleteLibraryFile(filename: string) {
+        if (!window.confirm(`Permanently delete "${filename}" from the MIDI archive?`)) {
+            return;
+        }
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.deleteLibraryFile, filename);
     }
 }
