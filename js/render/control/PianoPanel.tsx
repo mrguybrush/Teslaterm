@@ -166,10 +166,13 @@ interface PianoPanelState {
     loopLengthMs?: number;
     loopLayersView: LoopLayerView[];
     // A custom "arpeggio": instead of cycling through chord tones, a held key repeats a recorded
-    // rhythm of retriggers once per beat. beatPattern holds each pulse as a 0..1 fraction of a beat.
+    // rhythm of retriggers, cycling every beatPatternBeats beats. beatPattern holds each pulse as a
+    // 0..1 fraction of that whole cycle (not of a single beat - a tapped-in rhythm rarely fits in
+    // exactly one beat, and squeezing it into one would bunch fast taps into an inaudible blur).
     beatRecordEnabled: boolean;
     recordingBeat: boolean;
     beatPattern: number[];
+    beatPatternBeats: number;
 }
 
 // Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
@@ -270,6 +273,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             arpeggioEnabled: false,
             arpeggioNotesPerBeat: ARPEGGIO_NOTES_PER_BEAT_DEFAULT,
             beatPattern: [],
+            beatPatternBeats: 1,
             beatRecordEnabled: false,
             bpm: BPM_DEFAULT,
             layout: 'de',
@@ -601,9 +605,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         const run: BeatRun = {note, pendingTimeouts: []};
         this.beatRuns.set(baseNote, run);
         const pattern = this.state.beatPattern.length > 0 ? this.state.beatPattern : [0];
+        const cycleBeats = Math.max(1, this.state.beatPatternBeats);
         const scheduleCycle = () => {
             run.pendingTimeouts = [];
-            const cycleMs = this.beatMs();
+            const cycleMs = this.beatMs() * cycleBeats;
             for (const frac of pattern) {
                 const t = setTimeout(() => {
                     this.stopNote(key, note);
@@ -655,15 +660,22 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.setState({recordingBeat: false});
             return;
         }
-        // The recorded window is rescaled onto a single beat, so the pattern stays sensible (and
-        // still editable by re-recording) regardless of tempo changes made afterwards.
-        const cycleMs = Math.max(1, performance.now() - this.beatRecordStartTime);
+        // The recorded window is rescaled onto a whole number of beats (at the tempo used while
+        // recording) rather than squeezed into exactly one beat - a tapped-in rhythm almost never
+        // spans exactly one beat, and forcing it to would bunch fast taps together closely enough
+        // that their attack/release ramps overlap into a continuous buzz instead of a clean rhythm.
+        // Storing the cycle length in beats (not ms) keeps the pattern still sensible if the tempo
+        // changes later.
+        const recordedMs = Math.max(1, performance.now() - this.beatRecordStartTime);
+        const beatMsAtRecord = this.beatMs();
+        const cycleBeats = Math.max(1, Math.round(recordedMs / beatMsAtRecord));
+        const cycleMs = cycleBeats * beatMsAtRecord;
         const pattern = this.beatRecordTaps
             .map((t) => Math.max(0, Math.min(0.999, t / cycleMs)))
             .sort((a, b) => a - b);
         this.beatRecordStartTime = undefined;
         this.beatRecordTaps = [];
-        this.setState({beatPattern: pattern, recordingBeat: false});
+        this.setState({beatPattern: pattern, beatPatternBeats: cycleBeats, recordingBeat: false});
     }
 
     private setTranspose(newValue: number) {
