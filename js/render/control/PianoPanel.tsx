@@ -290,7 +290,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             return;
         }
         this.altGrHeld = ev.getModifierState('AltGraph');
-        if (this.props.disabled || ev.repeat) {
+        if (this.interactionBlocked() || ev.repeat) {
             return;
         }
         const note = this.buildKeyMap().get(ev.key.toLowerCase());
@@ -310,8 +310,15 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     };
 
+    // Preview mode never touches the coil, so it should keep working even while a coil connection
+    // is required for everything else (no connection, TR lock, etc.) - only actually sending to
+    // the coil needs to respect that lock.
+    private interactionBlocked(): boolean {
+        return !this.state.previewMode && this.props.disabled;
+    }
+
     private press(baseNote: number) {
-        if (this.props.disabled || this.state.pressedBaseNotes.has(baseNote)) {
+        if (this.interactionBlocked() || this.state.pressedBaseNotes.has(baseNote)) {
             return;
         }
         this.setState((s) => ({pressedBaseNotes: new Set(s.pressedBaseNotes).add(baseNote)}));
