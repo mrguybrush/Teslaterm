@@ -1,6 +1,7 @@
 import React from "react";
 import {Form} from "react-bootstrap";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
+import {CoilSynth} from "../audio/CoilSynth";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
 
@@ -98,6 +99,9 @@ const TAP_RESET_GAP_MS = 2000;
 const TAP_HISTORY_LENGTH = 8;
 const ARPEGGIO_INTERVALS_MAJOR = [0, 4, 7]; // major triad: root, major third, perfect fifth
 const ARPEGGIO_INTERVALS_MINOR = [0, 3, 7]; // minor triad: root, minor third, perfect fifth
+// The 3 notes of an arpeggio triad fit into a single BPM beat (i.e. they're played as a triplet),
+// not one note per beat - the latter felt sluggish at any reasonable tempo.
+const ARPEGGIO_NOTES_PER_BEAT = 3;
 const SLIDE_STEP_MS = 20;
 // Widen the MIDI pitch bend range (default firmware range is +-2 semitones) so a slide can
 // smoothly cover the full width of this 2-octave keyboard.
@@ -134,7 +138,20 @@ interface PianoPanelState {
     arpeggioEnabled: boolean;
     // Single tempo driving both slide duration and arpeggio note speed (one beat each).
     bpm: number;
+    // When on, keys play through this PC's speakers via a local synth instead of being sent to
+    // the coil - same idea and toggle as the MIDI playlist panel's preview mode.
+    previewMode: boolean;
+    // Alternative keyboard mapping for arpeggios: the A-G letter keys directly play the
+    // same-named chord (key "C" -> C major/minor arpeggio) instead of following the normal piano
+    // key layout - a "chord organ" style mapping for quickly jamming named chords.
+    absoluteChordKeys: boolean;
 }
+
+// Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
+// starts from (Z = C4 = 60) - only used when absoluteChordKeys is on.
+const NOTE_LETTER_TO_MIDI: Record<string, number> = {
+    a: 69, b: 71, c: 60, d: 62, e: 64, f: 65, g: 67,
+};
 
 interface ArpeggioRun {
     handle?: ReturnType<typeof setInterval>;
@@ -161,13 +178,16 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     private altGrHeld = false;
     // Timestamps of recent taps of the "Tap" tempo button.
     private readonly tapTimestamps: number[] = [];
+    private readonly synth = new CoilSynth();
 
     constructor(props: PianoPanelProps) {
         super(props);
         this.state = {
+            absoluteChordKeys: false,
             arpeggioEnabled: false,
             bpm: BPM_DEFAULT,
             layout: 'de',
+            previewMode: false,
             pressedBaseNotes: new Set(),
             slideEnabled: false,
             transpose: 0,
@@ -205,6 +225,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         super.componentWillUnmount();
         this.detachListeners();
         this.releaseAll();
+        this.synth.stopAll();
     }
 
     private attachListeners() {
@@ -223,7 +244,35 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
+    // Routes note on/off/control messages either to the coil (default) or to the local synth,
+    // depending on the preview toggle - same idea as the MIDI playlist panel's preview mode.
+    private sendMidi(bytes: Uint8Array) {
+        if (!this.state.previewMode) {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, bytes);
+        }
+    }
+
+    private playNote(key: string, note: number) {
+        if (this.state.previewMode) {
+            this.synth.noteOn(key, note);
+        } else {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOnBytes(note));
+        }
+    }
+
+    private stopNote(key: string, note: number) {
+        if (this.state.previewMode) {
+            this.synth.noteOff(key);
+        } else {
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(note));
+        }
+    }
+
     private buildKeyMap(): Map<string, number> {
+        if (this.state.arpeggioEnabled && this.state.absoluteChordKeys) {
+            // A-G aren't affected by the DE/EN Z<->Y swap, so no layout handling is needed here.
+            return new Map(Object.entries(NOTE_LETTER_TO_MIDI));
+        }
         const map = new Map<string, number>();
         for (const w of WHITE_KEYS) {
             map.set(displayKey(w.key, this.state.layout).toLowerCase(), w.note);
@@ -276,13 +325,13 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             if (this.monoSoundingNote !== undefined && this.monoSoundingNote !== note) {
                 this.slideTo(baseNote, note);
             } else if (this.monoSoundingNote === undefined) {
-                processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOnBytes(note));
+                this.playNote('mono', note);
                 this.monoOwnerBaseNote = baseNote;
                 this.monoSoundingNote = note;
             }
             return;
         }
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOnBytes(note));
+        this.playNote(String(baseNote), note);
         this.soundingNoteFor.set(baseNote, note);
     }
 
@@ -313,8 +362,8 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                 } else {
                     this.finishAnySlide();
                     if (this.monoSoundingNote !== undefined) {
-                        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(this.monoSoundingNote));
-                        processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, pitchBendBytes(0));
+                        this.stopNote('mono', this.monoSoundingNote);
+                        this.sendMidi(pitchBendBytes(0));
                     }
                     this.monoOwnerBaseNote = undefined;
                     this.monoSoundingNote = undefined;
@@ -327,7 +376,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         const note = this.soundingNoteFor.get(baseNote);
         if (note !== undefined) {
             this.soundingNoteFor.delete(baseNote);
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(note));
+            this.stopNote(String(baseNote), note);
         }
     }
 
@@ -347,12 +396,15 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.slideAnimationHandle = setInterval(() => {
             step++;
             const progress = Math.min(1, step / steps);
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, pitchBendBytes(diff * progress));
+            this.sendMidi(pitchBendBytes(diff * progress));
+            if (this.state.previewMode) {
+                this.synth.setNoteFrequency('mono', fromNote + diff * progress);
+            }
             if (progress >= 1) {
                 this.finishAnySlide();
-                processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(fromNote));
-                processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, pitchBendBytes(0));
-                processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOnBytes(targetNote));
+                this.stopNote('mono', fromNote);
+                this.sendMidi(pitchBendBytes(0));
+                this.playNote('mono', targetNote);
                 this.monoOwnerBaseNote = newOwnerBaseNote;
                 this.monoSoundingNote = targetNote;
             }
@@ -361,9 +413,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
 
     private startArpeggio(baseNote: number, rootNote: number) {
         const run: ArpeggioRun = {handle: undefined, index: -1, notes: []};
+        const key = `arp-${baseNote}`;
         const step = () => {
             if (run.soundingNote !== undefined) {
-                processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(run.soundingNote));
+                this.stopNote(key, run.soundingNote);
             }
             // Re-checked on every step (not just once at the initial press) so an already-running
             // arpeggio switches between major/minor as soon as AltGr is pressed or released.
@@ -371,10 +424,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             run.notes = intervals.map((offset) => clampNote(rootNote + offset));
             run.index = (run.index + 1) % run.notes.length;
             run.soundingNote = run.notes[run.index];
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOnBytes(run.soundingNote));
+            this.playNote(key, run.soundingNote);
         };
         step();
-        run.handle = setInterval(step, this.beatMs());
+        run.handle = setInterval(step, this.beatMs() / ARPEGGIO_NOTES_PER_BEAT);
         this.arpeggioRuns.set(baseNote, run);
     }
 
@@ -385,7 +438,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         clearInterval(run.handle);
         if (run.soundingNote !== undefined) {
-            processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, noteOffBytes(run.soundingNote));
+            this.stopNote(`arp-${baseNote}`, run.soundingNote);
         }
         this.arpeggioRuns.delete(baseNote);
     }
@@ -432,6 +485,17 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     onChange={(ev) => this.props.setActive(ev.target.checked)}
                 />
                 <span className={'tt-piano-hint'}>Keeps working after switching to another tab.</span>
+            </div>
+            <div className={'tt-piano-control-group'}>
+                <Form.Check
+                    type={'switch'}
+                    id={'piano-preview-mode'}
+                    label={this.state.previewMode
+                        ? 'Preview locally (not sent to the coil)'
+                        : 'Sending to the coil'}
+                    checked={this.state.previewMode}
+                    onChange={(ev) => this.setState({previewMode: ev.target.checked})}
+                />
             </div>
             <div className={'tt-piano-control-group'}>
                 <Form.Label>Keyboard layout</Form.Label>
@@ -520,6 +584,19 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     onChange={(ev) => this.setState({arpeggioEnabled: ev.target.checked})}
                 />
                 <span className={'tt-piano-hint'}>Hold AltGr while pressing a key for a minor arpeggio instead of major.</span>
+            </div>
+            <div className={'tt-piano-control-group'}>
+                <Form.Check
+                    type={'checkbox'}
+                    id={'piano-absolute-chord-keys'}
+                    label={'Absolute chord keys'}
+                    checked={this.state.absoluteChordKeys}
+                    onChange={(ev) => this.setState({absoluteChordKeys: ev.target.checked})}
+                />
+                <span className={'tt-piano-hint'}>
+                    With Arpeggio on: A-G play the same-named chord directly (key C plays a C
+                    arpeggio) instead of following the normal keyboard layout.
+                </span>
             </div>
         </div>;
     }

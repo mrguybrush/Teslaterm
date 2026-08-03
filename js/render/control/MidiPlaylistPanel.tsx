@@ -513,8 +513,19 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         </div>;
     }
 
-    private playPlaylistFromStart() {
-        if (this.state.playlist.length === 0 || this.coilLocked()) {
+    // Play only ever starts a fresh run from track 1 when nothing is loaded at all - if something
+    // is just paused (regardless of which track), it resumes exactly there (same song, same
+    // second) rather than restarting the playlist.
+    private playOrResumePlaylist() {
+        if (this.coilLocked()) {
+            return;
+        }
+        const ps = this.currentPlayerState();
+        if (ps.state === MidiPlaybackState.paused) {
+            this.resumeCurrent();
+            return;
+        }
+        if (this.state.playlist.length === 0) {
             return;
         }
         if (!this.state.autoPlay) {
@@ -523,21 +534,37 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.playPlaylistEntry(0);
     }
 
+    // Unlike the now-playing bar's Stop (which just rewinds whatever's currently loaded to its own
+    // start), the playlist's Stop resets all the way back to track 1.
+    private stopPlaylist() {
+        if (this.coilLocked()) {
+            return;
+        }
+        if (this.state.playlist.length === 0) {
+            this.stopCurrent();
+            return;
+        }
+        this.loadPlaylistEntryOnly(0);
+    }
+
     private makePlaylistTransport() {
         const disabled = this.controlsDisabled();
+        const ps = this.currentPlayerState();
+        const playing = ps.state === MidiPlaybackState.playing;
         return <ButtonGroup size={'sm'} className={'tt-midi-playlist-transport'}>
-            <Button
-                variant={'secondary'}
-                disabled={disabled || this.state.playlist.length === 0}
-                title={'Play playlist from the start'}
-                onClick={() => this.playPlaylistFromStart()}
-            >
-                ▶
-            </Button>
-            <Button variant={'secondary'} disabled={disabled} title={'Pause'} onClick={() => this.pauseCurrent()}>
-                ⏸
-            </Button>
-            <Button variant={'secondary'} disabled={disabled} title={'Stop'} onClick={() => this.stopCurrent()}>
+            {playing
+                ? <Button variant={'secondary'} disabled={disabled} title={'Pause'} onClick={() => this.pauseCurrent()}>
+                    ⏸
+                </Button>
+                : <Button
+                    variant={'secondary'}
+                    disabled={disabled || (ps.state === MidiPlaybackState.stopped && this.state.playlist.length === 0)}
+                    title={ps.state === MidiPlaybackState.paused ? 'Resume' : 'Play playlist from the start'}
+                    onClick={() => this.playOrResumePlaylist()}
+                >
+                    ▶
+                </Button>}
+            <Button variant={'secondary'} disabled={disabled} title={'Stop (back to track 1)'} onClick={() => this.stopPlaylist()}>
                 ⏹
             </Button>
         </ButtonGroup>;
