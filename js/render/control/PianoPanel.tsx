@@ -102,8 +102,11 @@ const ARPEGGIO_INTERVALS_MINOR = [0, 3, 7]; // minor triad: root, minor third, p
 // The 3 notes of an arpeggio triad fit into a single BPM beat by default (played as a triplet),
 // not one note per beat - the latter felt sluggish at any reasonable tempo. Adjustable in the UI.
 const ARPEGGIO_NOTES_PER_BEAT_DEFAULT = 3;
-const ARPEGGIO_NOTES_PER_BEAT_MIN = 1;
-const ARPEGGIO_NOTES_PER_BEAT_MAX = 8;
+// Below 1 means slower than one note per beat (e.g. 0.5 = one note every 2 beats); the top end
+// goes well past what's musically a "triplet feel" for genuinely fast, buzzy arpeggios.
+const ARPEGGIO_NOTES_PER_BEAT_MIN = 0.1;
+const ARPEGGIO_NOTES_PER_BEAT_MAX = 64;
+const ARPEGGIO_NOTES_PER_BEAT_STEP = 0.1;
 const SLIDE_FACTOR_DEFAULT = 1;
 const SLIDE_FACTOR_MIN = 0.1;
 const SLIDE_FACTOR_MAX = 8;
@@ -440,6 +443,11 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         this.setState((s) => ({pressedBaseNotes: new Set(s.pressedBaseNotes).add(baseNote)}));
         this.heldStack.push(baseNote);
+        // Any key can tap in the rhythm while recording a beat - only the timing is kept, so the
+        // pitch played here is discarded and reapplied to whatever note is held during playback.
+        if (this.state.recordingBeat) {
+            this.tapBeat();
+        }
         const note = clampNote(baseNote + this.state.transpose);
         if (this.state.arpeggioEnabled) {
             this.soundModeFor.set(baseNote, 'arpeggio');
@@ -711,7 +719,8 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.setState({
             arpeggioNotesPerBeat: Math.max(
                 ARPEGGIO_NOTES_PER_BEAT_MIN,
-                Math.min(ARPEGGIO_NOTES_PER_BEAT_MAX, Math.round(value)),
+                // Fractional values matter here (e.g. 0.5 notes/beat), so no rounding to an int.
+                Math.min(ARPEGGIO_NOTES_PER_BEAT_MAX, value),
             ),
         });
     }
@@ -1085,6 +1094,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                         size={'sm'}
                         min={ARPEGGIO_NOTES_PER_BEAT_MIN}
                         max={ARPEGGIO_NOTES_PER_BEAT_MAX}
+                        step={ARPEGGIO_NOTES_PER_BEAT_STEP}
                         style={{width: '4.5em'}}
                         value={this.state.arpeggioNotesPerBeat}
                         onChange={(ev) => this.setArpeggioNotesPerBeat(Number(ev.target.value))}
