@@ -99,9 +99,14 @@ const TAP_RESET_GAP_MS = 2000;
 const TAP_HISTORY_LENGTH = 8;
 const ARPEGGIO_INTERVALS_MAJOR = [0, 4, 7]; // major triad: root, major third, perfect fifth
 const ARPEGGIO_INTERVALS_MINOR = [0, 3, 7]; // minor triad: root, minor third, perfect fifth
-// The 3 notes of an arpeggio triad fit into a single BPM beat (i.e. they're played as a triplet),
-// not one note per beat - the latter felt sluggish at any reasonable tempo.
-const ARPEGGIO_NOTES_PER_BEAT = 3;
+// The 3 notes of an arpeggio triad fit into a single BPM beat by default (played as a triplet),
+// not one note per beat - the latter felt sluggish at any reasonable tempo. Adjustable in the UI.
+const ARPEGGIO_NOTES_PER_BEAT_DEFAULT = 3;
+const ARPEGGIO_NOTES_PER_BEAT_MIN = 1;
+const ARPEGGIO_NOTES_PER_BEAT_MAX = 8;
+const SLIDE_FACTOR_DEFAULT = 1;
+const SLIDE_FACTOR_MIN = 0.1;
+const SLIDE_FACTOR_MAX = 8;
 const SLIDE_STEP_MS = 20;
 // Widen the MIDI pitch bend range (default firmware range is +-2 semitones) so a slide can
 // smoothly cover the full width of this 2-octave keyboard.
@@ -145,6 +150,18 @@ interface PianoPanelState {
     // same-named chord (key "C" -> C major/minor arpeggio) instead of following the normal piano
     // key layout - a "chord organ" style mapping for quickly jamming named chords.
     absoluteChordKeys: boolean;
+    // Multiplier on the beat length used for slide duration (1 = exactly one beat).
+    slideFactor: number;
+    // How many arpeggio notes fit into a single beat.
+    arpeggioNotesPerBeat: number;
+    metronomeEnabled: boolean;
+    // Flips every beat while the metronome runs, driving the visual pulse.
+    metronomeFlash: boolean;
+    loopStationEnabled: boolean;
+    loopRecording: boolean;
+    // Set once the first layer is closed; undefined means no loop length has been established yet.
+    loopLengthMs?: number;
+    loopLayersView: LoopLayerView[];
 }
 
 // Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
@@ -158,6 +175,25 @@ interface ArpeggioRun {
     notes: number[];
     index: number;
     soundingNote?: number;
+}
+
+// A single recorded note on/off, timestamped relative to the start of the loop cycle.
+interface LoopEvent {
+    offsetMs: number;
+    note: number;
+    on: boolean;
+}
+
+interface LoopLayer {
+    id: number;
+    events: LoopEvent[];
+    muted: boolean;
+}
+
+interface LoopLayerView {
+    id: number;
+    muted: boolean;
+    noteCount: number;
 }
 
 export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
@@ -179,23 +215,50 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     // Timestamps of recent taps of the "Tap" tempo button.
     private readonly tapTimestamps: number[] = [];
     private readonly synth = new CoilSynth();
+    private metronomeHandle?: ReturnType<typeof setInterval>;
+
+    // The loop station's timing/audio state lives in plain instance fields rather than React
+    // state - it's driven by setTimeout chains that need to read the current data synchronously
+    // and can't wait for a render cycle. `loopLayersView` in React state is a read-only mirror of
+    // `loopLayers`, kept in sync explicitly, purely so the layer list can render.
+    private loopLengthMs?: number;
+    private loopStartTime?: number;
+    private loopLayers: LoopLayer[] = [];
+    private nextLoopLayerId = 1;
+    private loopRecording = false;
+    // Mirrors state.loopStationEnabled - the scheduler and record-start guards below run
+    // synchronously right after a setState() call in the same event handler, where React's state
+    // update hasn't been applied yet, so they need a value that's already up to date at that point.
+    private loopStationEnabled = false;
+    private recordStartTime?: number;
+    private currentRecordingEvents: LoopEvent[] = [];
+    private loopScheduleTimeouts: Array<ReturnType<typeof setTimeout>> = [];
+    private recordAutoStopHandle?: ReturnType<typeof setTimeout>;
 
     constructor(props: PianoPanelProps) {
         super(props);
         this.state = {
             absoluteChordKeys: false,
             arpeggioEnabled: false,
+            arpeggioNotesPerBeat: ARPEGGIO_NOTES_PER_BEAT_DEFAULT,
             bpm: BPM_DEFAULT,
             layout: 'de',
+            loopLayersView: [],
+            loopRecording: false,
+            loopStationEnabled: false,
+            metronomeEnabled: false,
+            metronomeFlash: false,
             previewMode: true,
             pressedBaseNotes: new Set(),
             slideEnabled: false,
+            slideFactor: SLIDE_FACTOR_DEFAULT,
             transpose: 0,
         };
     }
 
     private beatMs(): number {
-        return 60000 / this.state.bpm;
+        // Guards against the BPM field transiently holding 0/invalid while being typed into.
+        return 60000 / Math.max(1, this.state.bpm);
     }
 
     public componentDidMount() {
@@ -210,7 +273,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, controlChangeBytes(0x64, 0x7F));
     }
 
-    public componentDidUpdate(prevProps: PianoPanelProps) {
+    public componentDidUpdate(prevProps: PianoPanelProps, prevState: PianoPanelState) {
         if (prevProps.active !== this.props.active) {
             if (this.props.active) {
                 this.attachListeners();
@@ -219,6 +282,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                 this.releaseAll();
             }
         }
+        // The metronome's interval is otherwise fixed at whatever BPM was current when it started.
+        if (prevState.bpm !== this.state.bpm && this.state.metronomeEnabled) {
+            this.startMetronome();
+        }
     }
 
     public componentWillUnmount() {
@@ -226,6 +293,14 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.detachListeners();
         this.releaseAll();
         this.synth.stopAll();
+        this.stopMetronome();
+        if (this.loopRecording) {
+            this.finishRecordingLayer();
+        }
+        this.stopLoopPlayback();
+        if (this.recordAutoStopHandle !== undefined) {
+            clearTimeout(this.recordAutoStopHandle);
+        }
     }
 
     private attachListeners() {
@@ -252,7 +327,13 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
-    private playNote(key: string, note: number) {
+    // `live` is false only when the loop station's own scheduler is the one triggering the note -
+    // otherwise a recording layer would end up capturing the previous layers' looped playback
+    // instead of just what the performer is actively playing.
+    private playNote(key: string, note: number, live: boolean = true) {
+        if (live) {
+            this.recordLoopEvent(note, true);
+        }
         if (this.state.previewMode) {
             this.synth.noteOn(key, note);
         } else {
@@ -260,7 +341,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
-    private stopNote(key: string, note: number) {
+    private stopNote(key: string, note: number, live: boolean = true) {
+        if (live) {
+            this.recordLoopEvent(note, false);
+        }
         if (this.state.previewMode) {
             this.synth.noteOff(key);
         } else {
@@ -280,6 +364,11 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         for (const b of BLACK_KEYS) {
             map.set(displayKey(b.key, this.state.layout).toLowerCase(), b.note);
         }
+        // ,/./- sit right after M on the bottom row, so they continue that row naturally instead
+        // of jumping up to Q/W/E - an extra way to reach the same three notes, not a replacement.
+        map.set(',', map.get(displayKey('Q', this.state.layout).toLowerCase()));
+        map.set('.', map.get(displayKey('W', this.state.layout).toLowerCase()));
+        map.set('-', map.get(displayKey('E', this.state.layout).toLowerCase()));
         return map;
     }
 
@@ -398,7 +487,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.finishAnySlide();
         const fromNote = this.monoSoundingNote;
         const diff = targetNote - fromNote;
-        const steps = Math.max(1, Math.round(this.beatMs() / SLIDE_STEP_MS));
+        const steps = Math.max(1, Math.round((this.beatMs() * this.state.slideFactor) / SLIDE_STEP_MS));
         let step = 0;
         this.slideAnimationHandle = setInterval(() => {
             step++;
@@ -434,7 +523,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.playNote(key, run.soundingNote);
         };
         step();
-        run.handle = setInterval(step, this.beatMs() / ARPEGGIO_NOTES_PER_BEAT);
+        run.handle = setInterval(step, this.beatMs() / this.state.arpeggioNotesPerBeat);
         this.arpeggioRuns.set(baseNote, run);
     }
 
@@ -458,6 +547,20 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.setState({bpm: Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(newValue)))});
     }
 
+    // Typing "60" digit-by-digit briefly passes through "6", which clamping-on-every-keystroke
+    // would immediately snap up to BPM_MIN (20 > 6) before the second digit could be typed - so
+    // the field accepts whatever's being typed as-is and only clamps once the user is done (blur).
+    private onBpmInput(raw: string) {
+        if (raw === '') {
+            this.setState({bpm: 0});
+            return;
+        }
+        const parsed = Number(raw);
+        if (!isNaN(parsed)) {
+            this.setState({bpm: parsed});
+        }
+    }
+
     private tap() {
         const now = Date.now();
         if (
@@ -479,6 +582,205 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         const avgIntervalMs = totalIntervalMs / (this.tapTimestamps.length - 1);
         this.setBpm(60000 / avgIntervalMs);
+    }
+
+    private setSlideFactor(value: number) {
+        this.setState({slideFactor: Math.max(SLIDE_FACTOR_MIN, Math.min(SLIDE_FACTOR_MAX, value))});
+    }
+
+    private setArpeggioNotesPerBeat(value: number) {
+        this.setState({
+            arpeggioNotesPerBeat: Math.max(
+                ARPEGGIO_NOTES_PER_BEAT_MIN,
+                Math.min(ARPEGGIO_NOTES_PER_BEAT_MAX, Math.round(value)),
+            ),
+        });
+    }
+
+    // --- Metronome ---------------------------------------------------------------------------
+
+    private setMetronomeEnabled(enabled: boolean) {
+        this.setState({metronomeEnabled: enabled});
+        if (enabled) {
+            this.startMetronome();
+        } else {
+            this.stopMetronome();
+        }
+    }
+
+    private startMetronome() {
+        this.stopMetronome();
+        this.setState({metronomeFlash: true});
+        this.metronomeHandle = setInterval(() => {
+            this.setState((s) => ({metronomeFlash: !s.metronomeFlash}));
+        }, this.beatMs());
+    }
+
+    private stopMetronome() {
+        if (this.metronomeHandle !== undefined) {
+            clearInterval(this.metronomeHandle);
+            this.metronomeHandle = undefined;
+        }
+        this.setState({metronomeFlash: false});
+    }
+
+    // --- Loop station --------------------------------------------------------------------------
+    // Classic looper workflow: the first recorded layer's length becomes the fixed loop length;
+    // every layer after that records for exactly one loop cycle, phase-aligned to the shared loop
+    // clock regardless of exactly when the user clicked Record, then starts looping automatically
+    // alongside whatever's already playing (overdub).
+
+    private recordLoopEvent(note: number, on: boolean) {
+        if (!this.loopRecording || this.recordStartTime === undefined) {
+            return;
+        }
+        const now = performance.now();
+        const offsetMs = this.loopLengthMs === undefined
+            ? now - this.recordStartTime
+            : (now - this.loopStartTime) % this.loopLengthMs;
+        this.currentRecordingEvents.push({note, offsetMs, on});
+    }
+
+    private setLoopStationEnabled(enabled: boolean) {
+        this.loopStationEnabled = enabled;
+        this.setState({loopStationEnabled: enabled});
+        if (!enabled) {
+            if (this.loopRecording) {
+                this.finishRecordingLayer();
+            }
+            this.stopLoopPlayback();
+        } else if (this.loopLengthMs !== undefined) {
+            this.scheduleLoopCycle();
+        }
+    }
+
+    private toggleLoopRecording() {
+        if (this.loopRecording) {
+            this.finishRecordingLayer();
+        } else {
+            this.startRecordingLayer();
+        }
+    }
+
+    private startRecordingLayer() {
+        if (!this.loopStationEnabled || this.loopRecording) {
+            return;
+        }
+        this.currentRecordingEvents = [];
+        this.recordStartTime = performance.now();
+        this.loopRecording = true;
+        this.setState({loopRecording: true});
+        if (this.loopLengthMs !== undefined) {
+            // Overdub layers auto-close after exactly one cycle - no need to click Record twice.
+            this.recordAutoStopHandle = setTimeout(() => this.finishRecordingLayer(), this.loopLengthMs);
+        }
+    }
+
+    private finishRecordingLayer() {
+        if (!this.loopRecording || this.recordStartTime === undefined) {
+            return;
+        }
+        if (this.recordAutoStopHandle !== undefined) {
+            clearTimeout(this.recordAutoStopHandle);
+            this.recordAutoStopHandle = undefined;
+        }
+        const events = this.currentRecordingEvents;
+        this.currentRecordingEvents = [];
+        const isFirstLayer = this.loopLengthMs === undefined;
+        if (isFirstLayer) {
+            this.loopLengthMs = Math.max(200, performance.now() - this.recordStartTime);
+            this.loopStartTime = this.recordStartTime;
+            this.setState({loopLengthMs: this.loopLengthMs});
+        }
+        this.recordStartTime = undefined;
+        this.loopRecording = false;
+        this.loopLayers.push({events, id: this.nextLoopLayerId++, muted: false});
+        this.setState({loopRecording: false});
+        this.syncLoopLayersState();
+        this.scheduleLoopCycle();
+    }
+
+    private toggleLayerMute(id: number) {
+        const layer = this.loopLayers.find((l) => l.id === id);
+        if (!layer) {
+            return;
+        }
+        layer.muted = !layer.muted;
+        this.syncLoopLayersState();
+        this.scheduleLoopCycle();
+    }
+
+    private deleteLayer(id: number) {
+        this.loopLayers = this.loopLayers.filter((l) => l.id !== id);
+        this.syncLoopLayersState();
+        if (this.loopLayers.length === 0) {
+            this.resetLoopStation();
+        } else {
+            this.scheduleLoopCycle();
+        }
+    }
+
+    private resetLoopStation() {
+        if (this.loopRecording) {
+            this.finishRecordingLayer();
+        }
+        this.stopLoopPlayback();
+        this.loopLayers = [];
+        this.loopLengthMs = undefined;
+        this.loopStartTime = undefined;
+        this.setState({loopLayersView: [], loopLengthMs: undefined});
+    }
+
+    private syncLoopLayersState() {
+        this.setState({
+            loopLayersView: this.loopLayers.map((l) => (
+                {id: l.id, muted: l.muted, noteCount: l.events.filter((e) => e.on).length}
+            )),
+        });
+    }
+
+    private clearLoopSchedule() {
+        for (const t of this.loopScheduleTimeouts) {
+            clearTimeout(t);
+        }
+        this.loopScheduleTimeouts = [];
+    }
+
+    private stopLoopPlayback() {
+        this.clearLoopSchedule();
+        // Silence anything currently sounding from loop playback specifically.
+        for (const layer of this.loopLayers) {
+            for (const ev of layer.events) {
+                if (ev.on) {
+                    this.stopNote(`loop-${layer.id}-${ev.note}`, ev.note, false);
+                }
+            }
+        }
+    }
+
+    private scheduleLoopCycle() {
+        this.clearLoopSchedule();
+        if (this.loopLengthMs === undefined || !this.loopStationEnabled) {
+            return;
+        }
+        for (const layer of this.loopLayers) {
+            if (layer.muted) {
+                continue;
+            }
+            for (const ev of layer.events) {
+                const key = `loop-${layer.id}-${ev.note}`;
+                const timeout = setTimeout(() => {
+                    if (ev.on) {
+                        this.playNote(key, ev.note, false);
+                    } else {
+                        this.stopNote(key, ev.note, false);
+                    }
+                }, ev.offsetMs);
+                this.loopScheduleTimeouts.push(timeout);
+            }
+        }
+        const nextCycle = setTimeout(() => this.scheduleLoopCycle(), this.loopLengthMs);
+        this.loopScheduleTimeouts.push(nextCycle);
     }
 
     private makeControls(): React.ReactNode {
@@ -552,11 +854,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     <Form.Control
                         type={'number'}
                         size={'sm'}
-                        min={BPM_MIN}
-                        max={BPM_MAX}
                         style={{width: '5em'}}
-                        value={this.state.bpm}
-                        onChange={(ev) => this.setBpm(Number(ev.target.value))}
+                        value={this.state.bpm || ''}
+                        onChange={(ev) => this.onBpmInput(ev.target.value)}
+                        onBlur={() => this.setBpm(this.state.bpm)}
                     />
                     <span>BPM</span>
                     <button
@@ -566,6 +867,17 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     >
                         Tap
                     </button>
+                    <span
+                        className={'tt-piano-metronome-dot' + (this.state.metronomeFlash ? ' active' : '')}
+                        title={'Metronome'}
+                    />
+                    <Form.Check
+                        type={'switch'}
+                        id={'piano-metronome'}
+                        label={'Metronome'}
+                        checked={this.state.metronomeEnabled}
+                        onChange={(ev) => this.setMetronomeEnabled(ev.target.checked)}
+                    />
                 </div>
             </div>
             <div className={'tt-piano-control-group'}>
@@ -576,6 +888,21 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     checked={this.state.slideEnabled}
                     onChange={(ev) => this.setState({slideEnabled: ev.target.checked})}
                 />
+                <div className={'tt-piano-transpose'} title={'Slide duration = beat length x this factor'}>
+                    <span>x</span>
+                    <Form.Control
+                        type={'number'}
+                        size={'sm'}
+                        step={0.1}
+                        min={SLIDE_FACTOR_MIN}
+                        max={SLIDE_FACTOR_MAX}
+                        style={{width: '4.5em'}}
+                        value={this.state.slideFactor}
+                        onChange={(ev) => this.setSlideFactor(Number(ev.target.value))}
+                    />
+                </div>
+            </div>
+            <div className={'tt-piano-control-group'}>
                 <Form.Check
                     type={'checkbox'}
                     id={'piano-arpeggio'}
@@ -584,6 +911,20 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     checked={this.state.arpeggioEnabled}
                     onChange={(ev) => this.setState({arpeggioEnabled: ev.target.checked})}
                 />
+                <div className={'tt-piano-transpose'} title={'Arpeggio notes per beat'}>
+                    <Form.Control
+                        type={'number'}
+                        size={'sm'}
+                        min={ARPEGGIO_NOTES_PER_BEAT_MIN}
+                        max={ARPEGGIO_NOTES_PER_BEAT_MAX}
+                        style={{width: '4.5em'}}
+                        value={this.state.arpeggioNotesPerBeat}
+                        onChange={(ev) => this.setArpeggioNotesPerBeat(Number(ev.target.value))}
+                    />
+                    <span>notes/beat</span>
+                </div>
+            </div>
+            <div className={'tt-piano-control-group'}>
                 <Form.Check
                     type={'checkbox'}
                     id={'piano-absolute-chord-keys'}
@@ -596,6 +937,62 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         </div>;
     }
 
+    private makeLoopStation(): React.ReactNode {
+        const recordLabel = this.state.loopRecording
+            ? '⏺ Recording...'
+            : (this.state.loopLengthMs === undefined ? '⏺ Record' : '⏺ Overdub');
+        return <div className={'tt-piano-loop-station'}>
+            <div className={'tt-piano-loop-station-bar'}>
+                <Form.Check
+                    type={'switch'}
+                    id={'piano-loop-station'}
+                    label={'Loop Station'}
+                    checked={this.state.loopStationEnabled}
+                    onChange={(ev) => this.setLoopStationEnabled(ev.target.checked)}
+                />
+                {this.state.loopStationEnabled && <>
+                    <button
+                        type={'button'}
+                        className={'btn btn-sm ' + (this.state.loopRecording ? 'btn-danger' : 'btn-secondary')}
+                        onClick={() => this.toggleLoopRecording()}
+                    >
+                        {recordLabel}
+                    </button>
+                    <button
+                        type={'button'}
+                        className={'btn btn-secondary btn-sm'}
+                        disabled={this.state.loopLayersView.length === 0}
+                        onClick={() => this.resetLoopStation()}
+                    >
+                        Clear all
+                    </button>
+                    {this.state.loopLengthMs !== undefined &&
+                        <span className={'tt-piano-hint'}>Loop: {(this.state.loopLengthMs / 1000).toFixed(1)}s</span>}
+                </>}
+            </div>
+            {this.state.loopStationEnabled && this.state.loopLayersView.length > 0 && <div className={'tt-piano-loop-layers'}>
+                {this.state.loopLayersView.map((layer, index) => (
+                    <div key={layer.id} className={'tt-piano-loop-layer' + (layer.muted ? ' muted' : '')}>
+                        <span
+                            className={'tt-piano-loop-layer-name'}
+                            onClick={() => this.toggleLayerMute(layer.id)}
+                            title={layer.muted ? 'Click to unmute' : 'Click to mute'}
+                        >
+                            Layer {index + 1} ({layer.noteCount} notes)
+                        </span>
+                        <button
+                            type={'button'}
+                            className={'btn btn-outline-danger btn-sm'}
+                            onClick={() => this.deleteLayer(layer.id)}
+                        >
+                            ✕
+                        </button>
+                    </div>
+                ))}
+            </div>}
+        </div>;
+    }
+
     public render(): React.ReactNode {
         if (!this.props.visible) {
             // Stays mounted (so listeners/state survive switching tabs) but renders nothing.
@@ -604,6 +1001,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         const blackByIndex = new Map(BLACK_KEYS.map((b) => [b.afterWhiteIndex, b]));
         return <div className={'tt-piano-panel'}>
             {this.makeControls()}
+            {this.makeLoopStation()}
             <div className={'tt-piano-keyboard'}>
                 {WHITE_KEYS.map((w, i) => {
                     const black = blackByIndex.get(i);
