@@ -187,7 +187,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             arpeggioEnabled: false,
             bpm: BPM_DEFAULT,
             layout: 'de',
-            previewMode: false,
+            previewMode: true,
             pressedBaseNotes: new Set(),
             slideEnabled: false,
             transpose: 0,
@@ -488,37 +488,31 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     type={'checkbox'}
                     id={'piano-active-toggle'}
                     label={'Piano active'}
+                    title={'Keeps working after switching to another tab.'}
                     checked={this.props.active}
                     onChange={(ev) => this.props.setActive(ev.target.checked)}
                 />
-                <span className={'tt-piano-hint'}>Keeps working after switching to another tab.</span>
-            </div>
-            <div className={'tt-piano-control-group'}>
                 <Form.Check
                     type={'switch'}
                     id={'piano-preview-mode'}
-                    label={this.state.previewMode
-                        ? 'Preview locally (not sent to the coil)'
-                        : 'Sending to the coil'}
+                    label={this.state.previewMode ? 'Preview locally' : 'Sending to the coil'}
+                    title={'When on, keys play through this PC\'s speakers instead of the coil.'}
                     checked={this.state.previewMode}
                     onChange={(ev) => this.setState({previewMode: ev.target.checked})}
                 />
             </div>
             <div className={'tt-piano-control-group'}>
-                <Form.Label>Keyboard layout</Form.Label>
                 <Form.Select
                     size={'sm'}
-                    style={{width: '10em'}}
+                    style={{width: '9em'}}
+                    title={'Keyboard layout'}
                     value={this.state.layout}
                     onChange={(ev) => this.setState({layout: ev.target.value as KeyboardLayout})}
                 >
                     <option value={'en'}>English (QWERTY)</option>
                     <option value={'de'}>German (QWERTZ)</option>
                 </Form.Select>
-            </div>
-            <div className={'tt-piano-control-group'}>
-                <Form.Label>Transpose</Form.Label>
-                <div className={'tt-piano-transpose'}>
+                <div className={'tt-piano-transpose'} title={'Transpose'}>
                     <button
                         type={'button'}
                         className={'btn btn-secondary btn-sm'}
@@ -551,14 +545,16 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                 </div>
             </div>
             <div className={'tt-piano-control-group'}>
-                <Form.Label>Tempo</Form.Label>
-                <div className={'tt-piano-transpose'}>
+                <div
+                    className={'tt-piano-transpose'}
+                    title={'Tempo - drives both the slide duration and the arpeggio speed (one beat each).'}
+                >
                     <Form.Control
                         type={'number'}
                         size={'sm'}
                         min={BPM_MIN}
                         max={BPM_MAX}
-                        style={{width: '6em'}}
+                        style={{width: '5em'}}
                         value={this.state.bpm}
                         onChange={(ev) => this.setBpm(Number(ev.target.value))}
                     />
@@ -571,7 +567,6 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                         Tap
                     </button>
                 </div>
-                <span className={'tt-piano-hint'}>Drives both the slide duration and the arpeggio speed (one beat each).</span>
             </div>
             <div className={'tt-piano-control-group'}>
                 <Form.Check
@@ -581,29 +576,22 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     checked={this.state.slideEnabled}
                     onChange={(ev) => this.setState({slideEnabled: ev.target.checked})}
                 />
-            </div>
-            <div className={'tt-piano-control-group'}>
                 <Form.Check
                     type={'checkbox'}
                     id={'piano-arpeggio'}
                     label={'Arpeggio'}
+                    title={'Hold AltGr while pressing a key for a minor arpeggio instead of major.'}
                     checked={this.state.arpeggioEnabled}
                     onChange={(ev) => this.setState({arpeggioEnabled: ev.target.checked})}
                 />
-                <span className={'tt-piano-hint'}>Hold AltGr while pressing a key for a minor arpeggio instead of major.</span>
-            </div>
-            <div className={'tt-piano-control-group'}>
                 <Form.Check
                     type={'checkbox'}
                     id={'piano-absolute-chord-keys'}
                     label={'Absolute chord keys'}
+                    title={'With Arpeggio on: A-G play the same-named chord directly (key C plays a C arpeggio) instead of following the normal keyboard layout.'}
                     checked={this.state.absoluteChordKeys}
                     onChange={(ev) => this.setState({absoluteChordKeys: ev.target.checked})}
                 />
-                <span className={'tt-piano-hint'}>
-                    With Arpeggio on: A-G play the same-named chord directly (key C plays a C
-                    arpeggio) instead of following the normal keyboard layout.
-                </span>
             </div>
         </div>;
     }

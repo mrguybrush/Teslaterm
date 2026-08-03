@@ -11,26 +11,22 @@
     flex: 0 0 auto;
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 20px;
+    align-items: flex-start;
+    gap: 6px 18px;
     margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.25);
     color: var(--bs-body-color);
 }
 
 .tt-piano-control-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .tt-piano-control-group .form-check {
-    margin-bottom: 2px;
-}
-
-.tt-piano-hint {
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-    max-width: 16em;
+    margin-bottom: 0;
 }
 
 .tt-piano-transpose {
