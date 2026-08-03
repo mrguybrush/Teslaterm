@@ -162,6 +162,11 @@ interface PianoPanelState {
     // Set once the first layer is closed; undefined means no loop length has been established yet.
     loopLengthMs?: number;
     loopLayersView: LoopLayerView[];
+    // A custom "arpeggio": instead of cycling through chord tones, a held key repeats a recorded
+    // rhythm of retriggers once per beat. beatPattern holds each pulse as a 0..1 fraction of a beat.
+    beatRecordEnabled: boolean;
+    recordingBeat: boolean;
+    beatPattern: number[];
 }
 
 // Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
@@ -175,6 +180,17 @@ interface ArpeggioRun {
     notes: number[];
     index: number;
     soundingNote?: number;
+}
+
+// Which mechanism actually made a given held key sound - recorded at press time and used at
+// release time instead of re-checking the live checkboxes, so toggling a mode mid-hold (e.g.
+// turning Slide time off while a slid note is still down) can't leave that note stuck on: release
+// always tears down whatever actually started it, not whatever the checkboxes currently say.
+type SoundMode = 'normal' | 'slide' | 'arpeggio' | 'beat';
+
+interface BeatRun {
+    note: number;
+    pendingTimeouts: Array<ReturnType<typeof setTimeout>>;
 }
 
 // A single recorded note on/off, timestamped relative to the start of the loop cycle.
@@ -209,6 +225,15 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     // Used only while slide time is off, where every key independently owns its own note-on/off.
     private readonly soundingNoteFor = new Map<number, number>();
     private readonly arpeggioRuns = new Map<number, ArpeggioRun>();
+    private readonly beatRuns = new Map<number, BeatRun>();
+    // What actually made each currently-held key sound, recorded at press time - see SoundMode.
+    private readonly soundModeFor = new Map<number, SoundMode>();
+    private beatRecordStartTime?: number;
+    private beatRecordTaps: number[] = [];
+    // First-layer recording only: lazily set on the first note actually played (not on the Record
+    // click), and kept updated on every subsequent event so the last one - normally a release -
+    // marks where the loop should end.
+    private firstLayerLastEventTime?: number;
     // Tracked live (not just at press time) so an already-running arpeggio switches between
     // major/minor as soon as AltGr is pressed or released, instead of only at the initial press.
     private altGrHeld = false;
@@ -241,6 +266,8 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             absoluteChordKeys: false,
             arpeggioEnabled: false,
             arpeggioNotesPerBeat: ARPEGGIO_NOTES_PER_BEAT_DEFAULT,
+            beatPattern: [],
+            beatRecordEnabled: false,
             bpm: BPM_DEFAULT,
             layout: 'de',
             loopLayersView: [],
@@ -250,6 +277,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             metronomeFlash: false,
             previewMode: true,
             pressedBaseNotes: new Set(),
+            recordingBeat: false,
             slideEnabled: false,
             slideFactor: SLIDE_FACTOR_DEFAULT,
             transpose: 0,
@@ -414,10 +442,17 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.heldStack.push(baseNote);
         const note = clampNote(baseNote + this.state.transpose);
         if (this.state.arpeggioEnabled) {
+            this.soundModeFor.set(baseNote, 'arpeggio');
             this.startArpeggio(baseNote, note);
             return;
         }
+        if (this.state.beatRecordEnabled) {
+            this.soundModeFor.set(baseNote, 'beat');
+            this.startBeatRun(baseNote, note);
+            return;
+        }
         if (this.state.slideEnabled) {
+            this.soundModeFor.set(baseNote, 'slide');
             if (this.monoSoundingNote !== undefined && this.monoSoundingNote !== note) {
                 this.slideTo(baseNote, note);
             } else if (this.monoSoundingNote === undefined) {
@@ -427,6 +462,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             }
             return;
         }
+        this.soundModeFor.set(baseNote, 'normal');
         this.playNote(String(baseNote), note);
         this.soundingNoteFor.set(baseNote, note);
     }
@@ -444,11 +480,20 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         if (stackIndex >= 0) {
             this.heldStack.splice(stackIndex, 1);
         }
-        if (this.arpeggioRuns.has(baseNote)) {
+        // Torn down according to however this specific key actually started sounding, not
+        // whatever the mode checkboxes currently say - otherwise flipping a checkbox while a note
+        // from the old mode is still held leaves it stuck on forever (nothing else ever stops it).
+        const mode = this.soundModeFor.get(baseNote);
+        this.soundModeFor.delete(baseNote);
+        if (mode === 'arpeggio') {
             this.stopArpeggio(baseNote);
             return;
         }
-        if (this.state.slideEnabled) {
+        if (mode === 'beat') {
+            this.stopBeatRun(baseNote);
+            return;
+        }
+        if (mode === 'slide') {
             if (this.monoOwnerBaseNote === baseNote) {
                 // Falling back to whichever other key is still held, if any, slides back down
                 // (or up) to that note instead of just cutting off.
@@ -537,6 +582,80 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.stopNote(`arp-${baseNote}`, run.soundingNote);
         }
         this.arpeggioRuns.delete(baseNote);
+    }
+
+    // --- Beat Record --------------------------------------------------------------------------
+    // A "custom arpeggio": instead of cycling through chord tones, a held key repeats the single
+    // recorded rhythm (retriggering the same note) once per beat, forever, until released.
+
+    private startBeatRun(baseNote: number, note: number) {
+        const key = `beat-${baseNote}`;
+        const run: BeatRun = {note, pendingTimeouts: []};
+        this.beatRuns.set(baseNote, run);
+        const pattern = this.state.beatPattern.length > 0 ? this.state.beatPattern : [0];
+        const scheduleCycle = () => {
+            run.pendingTimeouts = [];
+            const cycleMs = this.beatMs();
+            for (const frac of pattern) {
+                const t = setTimeout(() => {
+                    this.stopNote(key, note);
+                    this.playNote(key, note);
+                }, frac * cycleMs);
+                run.pendingTimeouts.push(t);
+            }
+            run.pendingTimeouts.push(setTimeout(scheduleCycle, cycleMs));
+        };
+        this.playNote(key, note);
+        scheduleCycle();
+    }
+
+    private stopBeatRun(baseNote: number) {
+        const run = this.beatRuns.get(baseNote);
+        if (!run) {
+            return;
+        }
+        for (const t of run.pendingTimeouts) {
+            clearTimeout(t);
+        }
+        this.stopNote(`beat-${baseNote}`, run.note);
+        this.beatRuns.delete(baseNote);
+    }
+
+    private toggleBeatRecording() {
+        if (this.state.recordingBeat) {
+            this.finishBeatRecording();
+        } else {
+            this.startBeatRecording();
+        }
+    }
+
+    private startBeatRecording() {
+        this.beatRecordStartTime = performance.now();
+        this.beatRecordTaps = [];
+        this.setState({recordingBeat: true});
+    }
+
+    private tapBeat() {
+        if (!this.state.recordingBeat || this.beatRecordStartTime === undefined) {
+            return;
+        }
+        this.beatRecordTaps.push(performance.now() - this.beatRecordStartTime);
+    }
+
+    private finishBeatRecording() {
+        if (this.beatRecordStartTime === undefined) {
+            this.setState({recordingBeat: false});
+            return;
+        }
+        // The recorded window is rescaled onto a single beat, so the pattern stays sensible (and
+        // still editable by re-recording) regardless of tempo changes made afterwards.
+        const cycleMs = Math.max(1, performance.now() - this.beatRecordStartTime);
+        const pattern = this.beatRecordTaps
+            .map((t) => Math.max(0, Math.min(0.999, t / cycleMs)))
+            .sort((a, b) => a - b);
+        this.beatRecordStartTime = undefined;
+        this.beatRecordTaps = [];
+        this.setState({beatPattern: pattern, recordingBeat: false});
     }
 
     private setTranspose(newValue: number) {
@@ -631,13 +750,28 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     // alongside whatever's already playing (overdub).
 
     private recordLoopEvent(note: number, on: boolean) {
-        if (!this.loopRecording || this.recordStartTime === undefined) {
+        if (!this.loopRecording) {
             return;
         }
         const now = performance.now();
-        const offsetMs = this.loopLengthMs === undefined
-            ? now - this.recordStartTime
-            : (now - this.loopStartTime) % this.loopLengthMs;
+        if (this.loopLengthMs === undefined) {
+            // First layer: the loop's own timing reference is the first note actually played,
+            // not the moment the Record button was clicked - so any lead-in silence before the
+            // performer starts playing doesn't get baked into the loop length.
+            if (this.recordStartTime === undefined) {
+                if (!on) {
+                    return;
+                }
+                this.recordStartTime = now;
+            }
+            this.currentRecordingEvents.push({note, offsetMs: now - this.recordStartTime, on});
+            this.firstLayerLastEventTime = now;
+            return;
+        }
+        if (this.recordStartTime === undefined) {
+            return;
+        }
+        const offsetMs = (now - this.loopStartTime) % this.loopLengthMs;
         this.currentRecordingEvents.push({note, offsetMs, on});
     }
 
@@ -667,29 +801,46 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             return;
         }
         this.currentRecordingEvents = [];
-        this.recordStartTime = performance.now();
         this.loopRecording = true;
         this.setState({loopRecording: true});
         if (this.loopLengthMs !== undefined) {
-            // Overdub layers auto-close after exactly one cycle - no need to click Record twice.
+            // Overdub: starts immediately, phase-aligned to the shared loop clock, and auto-closes
+            // after exactly one cycle - no need to click Record twice.
+            this.recordStartTime = performance.now();
             this.recordAutoStopHandle = setTimeout(() => this.finishRecordingLayer(), this.loopLengthMs);
+        } else {
+            // First layer: recordStartTime is set lazily, on the first note actually played (see
+            // recordLoopEvent) - not here.
+            this.recordStartTime = undefined;
+            this.firstLayerLastEventTime = undefined;
         }
     }
 
     private finishRecordingLayer() {
-        if (!this.loopRecording || this.recordStartTime === undefined) {
+        if (!this.loopRecording) {
             return;
         }
         if (this.recordAutoStopHandle !== undefined) {
             clearTimeout(this.recordAutoStopHandle);
             this.recordAutoStopHandle = undefined;
         }
+        const isFirstLayer = this.loopLengthMs === undefined;
+        if (isFirstLayer && this.recordStartTime === undefined) {
+            // Stopped without ever playing a note - nothing to close into a loop.
+            this.currentRecordingEvents = [];
+            this.loopRecording = false;
+            this.setState({loopRecording: false});
+            return;
+        }
         const events = this.currentRecordingEvents;
         this.currentRecordingEvents = [];
-        const isFirstLayer = this.loopLengthMs === undefined;
         if (isFirstLayer) {
-            this.loopLengthMs = Math.max(200, performance.now() - this.recordStartTime);
+            // The loop ends at the last recorded event - normally a release - rather than
+            // whenever the performer got around to clicking Stop, trimming trailing silence too.
+            const endTime = this.firstLayerLastEventTime ?? performance.now();
+            this.loopLengthMs = Math.max(200, endTime - this.recordStartTime);
             this.loopStartTime = this.recordStartTime;
+            this.firstLayerLastEventTime = undefined;
             this.setState({loopLengthMs: this.loopLengthMs});
         }
         this.recordStartTime = undefined;
@@ -700,17 +851,34 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.scheduleLoopCycle();
     }
 
+    // Muting/deleting a layer clears its pending scheduled timeouts (via scheduleLoopCycle's own
+    // reset), including whatever note-off was going to silence its currently-sounding note - so
+    // without this, that note is left stuck on for good. Silencing every note the layer could ever
+    // play is a bit of a blunt hammer, but stopNote() on an inactive key is a harmless no-op.
+    private silenceLayer(layer: LoopLayer) {
+        for (const note of new Set(layer.events.map((e) => e.note))) {
+            this.stopNote(`loop-${layer.id}-${note}`, note, false);
+        }
+    }
+
     private toggleLayerMute(id: number) {
         const layer = this.loopLayers.find((l) => l.id === id);
         if (!layer) {
             return;
         }
         layer.muted = !layer.muted;
+        if (layer.muted) {
+            this.silenceLayer(layer);
+        }
         this.syncLoopLayersState();
         this.scheduleLoopCycle();
     }
 
     private deleteLayer(id: number) {
+        const layer = this.loopLayers.find((l) => l.id === id);
+        if (layer) {
+            this.silenceLayer(layer);
+        }
         this.loopLayers = this.loopLayers.filter((l) => l.id !== id);
         this.syncLoopLayersState();
         if (this.loopLayers.length === 0) {
@@ -923,6 +1091,32 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     />
                     <span>notes/beat</span>
                 </div>
+            </div>
+            <div className={'tt-piano-control-group'}>
+                <Form.Check
+                    type={'checkbox'}
+                    id={'piano-beat-record'}
+                    label={'Beat Record'}
+                    title={'Records a rhythm that then repeats every beat while a key is held - a custom arpeggio.'}
+                    checked={this.state.beatRecordEnabled}
+                    onChange={(ev) => this.setState({beatRecordEnabled: ev.target.checked})}
+                />
+                {this.state.beatRecordEnabled && <div className={'tt-piano-transpose'}>
+                    <button
+                        type={'button'}
+                        className={'btn btn-sm ' + (this.state.recordingBeat ? 'btn-danger' : 'btn-secondary')}
+                        onClick={() => this.toggleBeatRecording()}
+                    >
+                        {this.state.recordingBeat ? 'Stop' : '⏺ Record Beat'}
+                    </button>
+                    {this.state.recordingBeat && <button
+                        type={'button'}
+                        className={'btn btn-primary btn-sm'}
+                        onClick={() => this.tapBeat()}
+                    >
+                        Tap
+                    </button>}
+                </div>}
             </div>
             <div className={'tt-piano-control-group'}>
                 <Form.Check
