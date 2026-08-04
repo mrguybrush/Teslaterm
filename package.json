@@ -1,6 +1,6 @@
 {
   "name": "teslaterm",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "scripts": {
     "tsc": "tsc --build --incremental",
     "build-dev": "npm run tsc && webpack --mode=development",
@@ -23,6 +23,7 @@
     "mp4-muxer": "^5.2.2",
     "react": "^18.3.1",
     "react-bootstrap": "^2.10.7",
+    "react-bootstrap-icons": "^1.11.6",
     "react-dom": "^18.3.1",
     "rtpmidi": "^1.0.0",
     "serialport": "12.0.0",

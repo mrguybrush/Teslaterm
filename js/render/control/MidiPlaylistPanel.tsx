@@ -1,5 +1,6 @@
 import React from "react";
 import {Button, ButtonGroup, Form, Modal} from "react-bootstrap";
+import {PauseFill, PlayFill, StopFill} from "react-bootstrap-icons";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {
@@ -415,13 +416,13 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                 <ButtonGroup size={'sm'} className={'tt-midi-nowplaying-controls'}>
                     {ps.state === MidiPlaybackState.playing
                         ? <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.pauseCurrent()}>
-                            ⏸ Pause
+                            <PauseFill/> Pause
                         </Button>
                         : <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.resumeCurrent()}>
-                            ▶ {atStart ? 'Play' : 'Resume'}
+                            <PlayFill/> {atStart ? 'Play' : 'Resume'}
                         </Button>}
                     <Button variant={'secondary'} disabled={controlsDisabled} onClick={() => this.stopCurrent()}>
-                        ⏹ Stop
+                        <StopFill/> Stop
                     </Button>
                 </ButtonGroup>
             </div>
@@ -554,7 +555,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         return <ButtonGroup size={'sm'} className={'tt-midi-playlist-transport'}>
             {playing
                 ? <Button variant={'secondary'} disabled={disabled} title={'Pause'} onClick={() => this.pauseCurrent()}>
-                    ⏸
+                    <PauseFill/>
                 </Button>
                 : <Button
                     variant={'secondary'}
@@ -562,10 +563,10 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                     title={ps.state === MidiPlaybackState.paused ? 'Resume' : 'Play playlist from the start'}
                     onClick={() => this.playOrResumePlaylist()}
                 >
-                    ▶
+                    <PlayFill/>
                 </Button>}
             <Button variant={'secondary'} disabled={disabled} title={'Stop (back to track 1)'} onClick={() => this.stopPlaylist()}>
-                ⏹
+                <StopFill/>
             </Button>
         </ButtonGroup>;
     }

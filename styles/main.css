@@ -104,6 +104,11 @@
     justify-self: center;
 }
 
+.tt-midi-nowplaying-controls svg,
+.tt-midi-playlist-transport svg {
+    vertical-align: -0.15em;
+}
+
 .tt-midi-timeline {
     margin-top: 6px;
 }

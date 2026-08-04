@@ -1,5 +1,6 @@
 import React from "react";
 import {Form} from "react-bootstrap";
+import {PlayFill, StopFill} from "react-bootstrap-icons";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {AutonomousPreset} from "../../common/UIConfig";
 import {CoilSynth} from "../audio/CoilSynth";
@@ -1776,7 +1777,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                         className={'btn btn-sm ' + (this.state.autonomousPlaying ? 'btn-danger' : 'btn-success')}
                         onClick={() => this.toggleAutonomousPlaying()}
                     >
-                        {this.state.autonomousPlaying ? 'Stop' : '▶ Play'}
+                        {this.state.autonomousPlaying ? <><StopFill/> Stop</> : <><PlayFill/> Play</>}
                     </button>
                 </>}
             </div>

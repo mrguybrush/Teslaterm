@@ -84,6 +84,10 @@
     color: var(--bs-body-color);
 }
 
+.tt-piano-autonomous svg {
+    vertical-align: -0.15em;
+}
+
 .tt-piano-loop-layers {
     display: flex;
     flex-wrap: wrap;
