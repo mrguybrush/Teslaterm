@@ -3,6 +3,9 @@
     height: 100vh;
     display: grid;
     grid-template-columns: 60% auto;
+    /* Both columns size to their content and sit centered in the viewport instead of being
+       stretched to full height with everything glued to the top. */
+    align-items: center;
 }
 
 .tt-connect-form {
@@ -11,13 +14,13 @@
     margin-right: 2.5%;
     padding-right: 2.5%;
     padding-bottom: 40px;
-    height: 100%;
+    max-height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
 }
 
 .tt-connect-sidebar {
-    height: 100%;
+    max-height: 100%;
     width: calc(min(400px, 40vw));
     margin-left: 0;
     display: flex;

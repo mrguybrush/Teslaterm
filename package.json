@@ -1,6 +1,6 @@
 {
   "name": "teslaterm",
-  "version": "1.8.9",
+  "version": "1.8.10",
   "scripts": {
     "tsc": "tsc --build --incremental",
     "build-dev": "npm run tsc && webpack --mode=development",
