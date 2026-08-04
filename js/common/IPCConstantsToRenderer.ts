@@ -57,6 +57,9 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     udName: makeKey<[CoilID, string]>('ud-name'),
     uiConfig: makeKey<SyncedUIConfig>('uiConfig'),
     updateConnectionState: makeKey<[CoilID, ConnectionStatus]>('update-connection-state'),
+    // Dedicated channel rather than the toast system, since it needs to be visible on the connect
+    // screen (where the "Check for updates" button lives) and that screen has no toast display.
+    updateCheckStatus: makeKey<{ message: string, isError: boolean }>('update-check-status'),
 };
 
 export function getToRenderIPCPerCoil(coil: CoilID) {

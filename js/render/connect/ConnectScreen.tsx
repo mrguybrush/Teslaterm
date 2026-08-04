@@ -73,6 +73,9 @@ interface ConnectScreenState {
 
     windowSizeJustSaved: boolean;
     showingSettings: boolean;
+
+    updateCheckMessage?: string;
+    updateCheckIsError: boolean;
 }
 
 export interface FRDisplayData {
@@ -112,8 +115,16 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             error: '',
             showingError: false,
             showingSettings: false,
+            updateCheckIsError: false,
             windowSizeJustSaved: false,
         };
+    }
+
+    public componentDidMount() {
+        super.componentDidMount();
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, (status) => {
+            this.setState({updateCheckIsError: status.isError, updateCheckMessage: status.message});
+        });
     }
 
     public componentWillUnmount() {
@@ -259,6 +270,23 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 >
                     Teslaterm on GitHub
                 </a>
+            </div>
+            <div>
+                <Button
+                    variant={'secondary'}
+                    onClick={() => {
+                        this.setState({updateCheckIsError: false, updateCheckMessage: undefined});
+                        processIPC.send(IPC_CONSTANTS_TO_MAIN.checkForUpdates, undefined);
+                    }}
+                >
+                    Check for updates
+                </Button>
+                {this.state.updateCheckMessage && <span
+                    className={'tt-update-check-status'}
+                    style={{color: this.state.updateCheckIsError ? 'var(--bs-danger)' : undefined}}
+                >
+                    {this.state.updateCheckMessage}
+                </span>}
             </div>
         </div>;
     }

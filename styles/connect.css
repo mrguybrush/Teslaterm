@@ -66,3 +66,8 @@
     text-align: left;
     gap: 0.75rem;
 }
+
+.tt-update-check-status {
+    margin-left: 0.75rem;
+    font-size: 0.9rem;
+}

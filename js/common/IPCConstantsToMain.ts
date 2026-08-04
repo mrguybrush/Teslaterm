@@ -25,6 +25,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         setPlaylistIndex: makeKey<number>('playlist-index'),
         setVolume: makeKey<[VolumeKey, VolumeUpdate]>('set-volume'),
     },
+    checkForUpdates: makeKey<undefined>('check-for-updates'),
     clearCoils: makeKey<undefined>('clear-coils'),
     commands: {
         setAllKillState: makeKey<boolean>('set-kill-state'),
