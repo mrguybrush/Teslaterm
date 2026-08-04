@@ -140,12 +140,22 @@ function writeUpdateScript(
         "@echo off",
         "title Teslaterm Update",
         `set PID=${process.pid}`,
+        `set EXENAME=${exeName}`,
+        "set WAITCOUNT=0",
         ":waitloop",
-        `tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL`,
+        // Filtering on IMAGENAME as well as PID matters: Windows recycles a freed PID almost
+        // immediately, and this very script spawns a fresh process (tasklist/find/timeout) on
+        // every single loop iteration - it's entirely possible for one of those short-lived
+        // helpers to get handed the old Teslaterm's just-freed PID, which would make a PID-only
+        // check see "still running" forever and loop indefinitely.
+        `tasklist /FI "PID eq %PID%" /FI "IMAGENAME eq %EXENAME%" 2>NUL | find "%PID%" >NUL`,
         "if not errorlevel 1 (",
+        "  set /a WAITCOUNT+=1",
+        "  if %WAITCOUNT% GEQ 30 goto waitdone",
         "  timeout /t 1 /nobreak >NUL",
         "  goto waitloop",
         ")",
+        ":waitdone",
         // Extra grace period for the OS to finish releasing file handles/memory maps after the
         // process has already disappeared from the task list.
         "timeout /t 2 /nobreak >NUL",
