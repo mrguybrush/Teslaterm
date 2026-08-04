@@ -5,15 +5,15 @@ MIDI-Playlist, virtuelle Klaviatur, konfigurierbare Scope-Farben, Frequency/Debu
 `max_tr_pw`-Parameter).
 
 - **Windows-Build (fertig zum Download)**: https://github.com/mrguybrush/Teslaterm/releases
-- **Firmware-Repo (UD3)**: https://github.com/mrguybrush/UD3
 - **Firmware direkt herunterladen**: https://raw.githubusercontent.com/mrguybrush/UD3/master/firmware-builds/UD3_TQFP.cyacd
 
 ## ⚠️ Firmware-Update ist notwendig
 
 Diese Teslaterm-Version erwartet zusätzliche Telemetriekanäle (Temp2 und Fres/Resonanzfrequenz), die in
 der originalen UD3-Firmware nicht gesendet werden. **Ohne das Firmware-Update fehlen diese Anzeigen bzw.
-funktionieren falsch.** Vor der ersten Nutzung also die passende Firmware aus dem
-[UD3-Repo](https://github.com/mrguybrush/UD3) auf die Platine flashen.
+funktionieren falsch.** Vor der ersten Nutzung also die passende Firmware
+([UD3_TQFP.cyacd](https://raw.githubusercontent.com/mrguybrush/UD3/master/firmware-builds/UD3_TQFP.cyacd))
+auf die Platine flashen.
 
 ## Firmware aktualisieren
 
@@ -21,9 +21,7 @@ funktionieren falsch.** Vor der ersten Nutzung also die passende Firmware aus de
 SD-Karte**. Ohne SD-Karte kann das Modul die übertragene Firmware-Datei nicht zwischenspeichern und der
 Upload schlägt fehl (`FTPError: 550 can't create the file`).
 
-1. `UD3_TQFP.cyacd` herunterladen (Link oben, oder aus dem
-   [`firmware-builds`-Ordner](https://github.com/mrguybrush/UD3/tree/master/firmware-builds) im
-   UD3-Repo).
+1. `UD3_TQFP.cyacd` herunterladen (Link oben).
 2. Teslaterm starten und **mit der Spule verbinden** (Fibernet-Verbindung muss aktiv sein).
 3. Die heruntergeladene `.cyacd`-Datei per Drag & Drop **auf das Terminal-Fenster von Teslaterm ziehen**.
 4. Die Übertragung startet automatisch; die Firmware wird hochgeladen und vom Bootloader geflasht.
