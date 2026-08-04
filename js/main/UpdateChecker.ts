@@ -138,6 +138,7 @@ function writeUpdateScript(
     const logPath = path.join(path.dirname(scriptPath), "update-error.log");
     const script = [
         "@echo off",
+        "title Teslaterm Update",
         `set PID=${process.pid}`,
         ":waitloop",
         `tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL`,
@@ -218,7 +219,11 @@ export async function downloadAndInstallUpdate() {
         writeUpdateScript(scriptPath, zipPath, stagingDir, installDir, exeName);
 
         pendingRelease = undefined;
-        spawn("cmd.exe", ["/c", scriptPath], {cwd: tempDir, detached: true, stdio: "ignore"}).unref();
+        // windowsHide is what actually matters here - without it, spawning cmd.exe still pops up a
+        // visible console window on Windows regardless of detached/stdio: "ignore".
+        spawn(
+            "cmd.exe", ["/c", scriptPath], {cwd: tempDir, detached: true, stdio: "ignore", windowsHide: true},
+        ).unref();
         app.quit();
     } catch (e) {
         reportStatus(`Update failed: ${e.message || e}`, true);
