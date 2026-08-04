@@ -126,6 +126,35 @@ const TIME_SIGNATURES: Array<{ label: string, beats: number }> = [
 const BEATS_PER_BAR_DEFAULT = 4;
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
+// Autonomous mode: a small generative melody algorithm, deliberately kept to just 5 parameters
+// (root, scale, density, range, randomness) so it stays quick to dial in rather than becoming its
+// own sub-app. Everything else about the algorithm (rest chance, note hold length, step size) is a
+// fixed internal choice, not exposed as a knob.
+const SCALES: Record<string, { label: string, intervals: number[] }> = {
+    major: {intervals: [0, 2, 4, 5, 7, 9, 11], label: 'Major'},
+    minor: {intervals: [0, 2, 3, 5, 7, 8, 10], label: 'Minor'},
+    pentatonicMajor: {intervals: [0, 2, 4, 7, 9], label: 'Pentatonic major'},
+    pentatonicMinor: {intervals: [0, 3, 5, 7, 10], label: 'Pentatonic minor'},
+    chromatic: {intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], label: 'Chromatic'},
+};
+type AutonomousScale = keyof typeof SCALES;
+const AUTONOMOUS_DENSITY_DEFAULT = 2;
+const AUTONOMOUS_DENSITY_MIN = 0.25;
+const AUTONOMOUS_DENSITY_MAX = 8;
+const AUTONOMOUS_DENSITY_STEP = 0.25;
+const AUTONOMOUS_RANGE_OCTAVES_MIN = 1;
+const AUTONOMOUS_RANGE_OCTAVES_MAX = 3;
+const AUTONOMOUS_RANGE_OCTAVES_DEFAULT = 2;
+const AUTONOMOUS_RANDOMNESS_DEFAULT = 0.4;
+const AUTONOMOUS_RANDOMNESS_STEP = 0.05;
+const AUTONOMOUS_ROOT_DEFAULT = 0; // C
+// How long a generated note stays held, as a fraction of the step interval - leaves a small gap
+// before the next note instead of a fully legato, blurred-together stream.
+const AUTONOMOUS_NOTE_HOLD_FRACTION = 0.85;
+// Small fixed chance of a rest instead of a note each step, so the line breathes a little instead
+// of being a nonstop stream of notes.
+const AUTONOMOUS_REST_PROBABILITY = 0.12;
+
 function clampNote(note: number): number {
     return Math.max(0, Math.min(127, note));
 }
@@ -195,6 +224,15 @@ interface PianoPanelState {
     recordingBeat: boolean;
     beatPattern: BeatPatternEvent[];
     beatPatternBeats: number;
+    // Generative "play itself" mode - no key presses needed, a small random-walk algorithm picks
+    // the notes once Play is pressed, constrained by the 5 parameters below.
+    autonomousEnabled: boolean;
+    autonomousPlaying: boolean;
+    autonomousRoot: number;
+    autonomousScale: AutonomousScale;
+    autonomousDensity: number;
+    autonomousRangeOctaves: number;
+    autonomousRandomness: number;
 }
 
 // Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
@@ -282,6 +320,12 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     private metronomeHandle?: ReturnType<typeof setInterval>;
     // Which beat of the bar the metronome is currently on - decides which click gets the accent.
     private metronomeBeatIndex = 0;
+    private autonomousHandle?: ReturnType<typeof setInterval>;
+    private autonomousHoldHandle?: ReturnType<typeof setTimeout>;
+    // Current position within the scale-degree range (0..scaleStepCount()-1), driving the random
+    // walk between steps.
+    private autonomousPositionIndex = 0;
+    private autonomousSoundingNote?: number;
 
     // The loop station's timing/audio state lives in plain instance fields rather than React
     // state - it's driven by setTimeout chains that need to read the current data synchronously
@@ -307,6 +351,13 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             absoluteChordKeys: false,
             arpeggioEnabled: false,
             arpeggioNotesPerBeat: ARPEGGIO_NOTES_PER_BEAT_DEFAULT,
+            autonomousDensity: AUTONOMOUS_DENSITY_DEFAULT,
+            autonomousEnabled: false,
+            autonomousPlaying: false,
+            autonomousRandomness: AUTONOMOUS_RANDOMNESS_DEFAULT,
+            autonomousRangeOctaves: AUTONOMOUS_RANGE_OCTAVES_DEFAULT,
+            autonomousRoot: AUTONOMOUS_ROOT_DEFAULT,
+            autonomousScale: 'major',
             beatPattern: [],
             beatPatternBeats: 1,
             beatRecordEnabled: false,
@@ -375,6 +426,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         this.releaseAll();
         this.synth.stopAll();
         this.stopMetronome();
+        this.stopAutonomous();
         if (this.loopRecording) {
             this.finishRecordingLayer();
         }
@@ -926,6 +978,88 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
+    // --- Autonomous mode -----------------------------------------------------------------------
+    // Generates its own melody with no key presses needed, once Play is pressed - a simple random
+    // walk across a scale-degree range: mostly small stepwise moves for a singable line, with an
+    // occasional larger jump (the randomness knob) for real aleatoric character, plus a small
+    // fixed chance of a rest so it isn't a nonstop stream of notes.
+
+    private setAutonomousEnabled(enabled: boolean) {
+        this.setState({autonomousEnabled: enabled});
+        if (!enabled) {
+            this.stopAutonomous();
+        }
+    }
+
+    private toggleAutonomousPlaying() {
+        if (this.state.autonomousPlaying) {
+            this.stopAutonomous();
+        } else {
+            this.startAutonomous();
+        }
+    }
+
+    private autonomousScaleStepCount(): number {
+        return SCALES[this.state.autonomousScale].intervals.length * this.state.autonomousRangeOctaves;
+    }
+
+    private startAutonomous() {
+        this.stopAutonomous();
+        // Start roughly in the middle of the range rather than at its bottom edge.
+        this.autonomousPositionIndex = Math.floor(this.autonomousScaleStepCount() / 2);
+        this.setState({autonomousPlaying: true});
+        const stepMs = this.beatMs() / this.state.autonomousDensity;
+        this.autonomousStep();
+        this.autonomousHandle = setInterval(() => this.autonomousStep(), stepMs);
+    }
+
+    private stopAutonomous() {
+        if (this.autonomousHandle !== undefined) {
+            clearInterval(this.autonomousHandle);
+            this.autonomousHandle = undefined;
+        }
+        if (this.autonomousHoldHandle !== undefined) {
+            clearTimeout(this.autonomousHoldHandle);
+            this.autonomousHoldHandle = undefined;
+        }
+        if (this.autonomousSoundingNote !== undefined) {
+            this.stopNote('auto', this.autonomousSoundingNote);
+            this.autonomousSoundingNote = undefined;
+        }
+        this.setState({autonomousPlaying: false});
+    }
+
+    private autonomousStep() {
+        if (this.autonomousSoundingNote !== undefined) {
+            this.stopNote('auto', this.autonomousSoundingNote);
+            this.autonomousSoundingNote = undefined;
+        }
+        if (Math.random() < AUTONOMOUS_REST_PROBABILITY) {
+            return;
+        }
+        const stepCount = Math.max(1, this.autonomousScaleStepCount());
+        if (Math.random() < this.state.autonomousRandomness) {
+            this.autonomousPositionIndex = Math.floor(Math.random() * stepCount);
+        } else {
+            const delta = (1 + Math.floor(Math.random() * 2)) * (Math.random() < 0.5 ? -1 : 1);
+            this.autonomousPositionIndex = Math.max(0, Math.min(stepCount - 1, this.autonomousPositionIndex + delta));
+        }
+        const intervals = SCALES[this.state.autonomousScale].intervals;
+        const octave = Math.floor(this.autonomousPositionIndex / intervals.length);
+        const degree = this.autonomousPositionIndex % intervals.length;
+        const note = clampNote(60 + this.state.autonomousRoot + octave * 12 + intervals[degree] + this.state.transpose);
+        this.playNote('auto', note);
+        this.autonomousSoundingNote = note;
+        const stepMs = this.beatMs() / this.state.autonomousDensity;
+        const holdMs = Math.max(20, stepMs * AUTONOMOUS_NOTE_HOLD_FRACTION);
+        this.autonomousHoldHandle = setTimeout(() => {
+            if (this.autonomousSoundingNote === note) {
+                this.stopNote('auto', note);
+                this.autonomousSoundingNote = undefined;
+            }
+        }, holdMs);
+    }
+
     // --- Loop station --------------------------------------------------------------------------
     // Classic looper workflow: the first recorded layer's length becomes the fixed loop length;
     // every layer after that records for exactly one loop cycle, phase-aligned to the shared loop
@@ -1390,6 +1524,103 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         </div>;
     }
 
+    private makeAutonomousSection(): React.ReactNode {
+        return <div className={'tt-piano-autonomous'}>
+            <div className={'tt-piano-loop-station-bar'}>
+                <Form.Check
+                    type={'switch'}
+                    id={'piano-autonomous-enabled'}
+                    label={'Autonomous mode'}
+                    title={'Generates its own melody with a random-walk algorithm - no key presses needed once Play is pressed.'}
+                    checked={this.state.autonomousEnabled}
+                    onChange={(ev) => this.setAutonomousEnabled(ev.target.checked)}
+                />
+                {this.state.autonomousEnabled && <>
+                    <Form.Select
+                        size={'sm'}
+                        style={{width: '4.5em'}}
+                        title={'Root note'}
+                        value={this.state.autonomousRoot}
+                        onChange={(ev) => this.setState({autonomousRoot: Number(ev.target.value)})}
+                    >
+                        {NOTE_NAMES.map((name, i) => <option key={name} value={i}>{name}</option>)}
+                    </Form.Select>
+                    <Form.Select
+                        size={'sm'}
+                        style={{width: '9em'}}
+                        title={'Scale'}
+                        value={this.state.autonomousScale}
+                        onChange={(ev) => this.setState({autonomousScale: ev.target.value as AutonomousScale})}
+                    >
+                        {Object.entries(SCALES).map(([key, scale]) => (
+                            <option key={key} value={key}>{scale.label}</option>
+                        ))}
+                    </Form.Select>
+                    <div className={'tt-piano-transpose'} title={'Notes per beat'}>
+                        <Form.Control
+                            type={'number'}
+                            size={'sm'}
+                            min={AUTONOMOUS_DENSITY_MIN}
+                            max={AUTONOMOUS_DENSITY_MAX}
+                            step={AUTONOMOUS_DENSITY_STEP}
+                            style={{width: '4.5em'}}
+                            value={this.state.autonomousDensity}
+                            onChange={(ev) => this.setState({
+                                autonomousDensity: Math.max(
+                                    AUTONOMOUS_DENSITY_MIN,
+                                    Math.min(AUTONOMOUS_DENSITY_MAX, Number(ev.target.value)),
+                                ),
+                            })}
+                        />
+                        <span>notes/beat</span>
+                    </div>
+                    <div className={'tt-piano-transpose'} title={'Range'}>
+                        <Form.Control
+                            type={'number'}
+                            size={'sm'}
+                            min={AUTONOMOUS_RANGE_OCTAVES_MIN}
+                            max={AUTONOMOUS_RANGE_OCTAVES_MAX}
+                            style={{width: '3.5em'}}
+                            value={this.state.autonomousRangeOctaves}
+                            onChange={(ev) => this.setState({
+                                autonomousRangeOctaves: Math.max(
+                                    AUTONOMOUS_RANGE_OCTAVES_MIN,
+                                    Math.min(AUTONOMOUS_RANGE_OCTAVES_MAX, Number(ev.target.value)),
+                                ),
+                            })}
+                        />
+                        <span>octaves</span>
+                    </div>
+                    <div
+                        className={'tt-piano-transpose'}
+                        title={'Randomness - how often the melody jumps to an unrelated note instead of stepping smoothly.'}
+                    >
+                        <Form.Control
+                            type={'number'}
+                            size={'sm'}
+                            min={0}
+                            max={1}
+                            step={AUTONOMOUS_RANDOMNESS_STEP}
+                            style={{width: '4.5em'}}
+                            value={this.state.autonomousRandomness}
+                            onChange={(ev) => this.setState({
+                                autonomousRandomness: Math.max(0, Math.min(1, Number(ev.target.value))),
+                            })}
+                        />
+                        <span>randomness</span>
+                    </div>
+                    <button
+                        type={'button'}
+                        className={'btn btn-sm ' + (this.state.autonomousPlaying ? 'btn-danger' : 'btn-success')}
+                        onClick={() => this.toggleAutonomousPlaying()}
+                    >
+                        {this.state.autonomousPlaying ? 'Stop' : '▶ Play'}
+                    </button>
+                </>}
+            </div>
+        </div>;
+    }
+
     public render(): React.ReactNode {
         if (!this.props.visible) {
             // Stays mounted (so listeners/state survive switching tabs) but renders nothing.
@@ -1399,6 +1630,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         return <div className={'tt-piano-panel'}>
             {this.makeControls()}
             {this.makeLoopStation()}
+            {this.makeAutonomousSection()}
             <div className={'tt-piano-keyboard'}>
                 {WHITE_KEYS.map((w, i) => {
                     const black = blackByIndex.get(i);
