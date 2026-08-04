@@ -77,6 +77,7 @@ interface ConnectScreenState {
     updateCheckMessage?: string;
     updateCheckIsError: boolean;
     updateAvailable: boolean;
+    updateReleaseNotes?: string;
 }
 
 export interface FRDisplayData {
@@ -129,6 +130,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 updateAvailable: status.updateAvailable,
                 updateCheckIsError: status.isError,
                 updateCheckMessage: status.message,
+                updateReleaseNotes: status.releaseNotes,
             });
         });
     }
@@ -281,21 +283,17 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 <Button
                     variant={'secondary'}
                     onClick={() => {
-                        this.setState({updateAvailable: false, updateCheckIsError: false, updateCheckMessage: undefined});
+                        this.setState({
+                            updateAvailable: false,
+                            updateCheckIsError: false,
+                            updateCheckMessage: undefined,
+                            updateReleaseNotes: undefined,
+                        });
                         processIPC.send(IPC_CONSTANTS_TO_MAIN.checkForUpdates, undefined);
                     }}
                 >
                     Check for updates
                 </Button>
-                {this.state.updateAvailable && <Button
-                    variant={'success'}
-                    onClick={() => {
-                        this.setState({updateAvailable: false});
-                        processIPC.send(IPC_CONSTANTS_TO_MAIN.downloadUpdate, undefined);
-                    }}
-                >
-                    Download &amp; install
-                </Button>}
                 {this.state.updateCheckMessage && <span
                     className={'tt-update-check-status'}
                     style={{color: this.state.updateCheckIsError ? 'var(--bs-danger)' : undefined}}
@@ -303,6 +301,18 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                     {this.state.updateCheckMessage}
                 </span>}
             </div>
+            {this.state.updateAvailable && this.state.updateReleaseNotes && <pre className={'tt-update-release-notes'}>
+                {this.state.updateReleaseNotes}
+            </pre>}
+            {this.state.updateAvailable && <Button
+                variant={'success'}
+                onClick={() => {
+                    this.setState({updateAvailable: false});
+                    processIPC.send(IPC_CONSTANTS_TO_MAIN.downloadUpdate, undefined);
+                }}
+            >
+                Download &amp; install
+            </Button>}
         </div>;
     }
 

@@ -60,8 +60,11 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     // Dedicated channel rather than the toast system, since it needs to be visible on the connect
     // screen (where the "Check for updates" button lives) and that screen has no toast display.
     // updateAvailable true is what makes the renderer show the separate "Download & install"
-    // button - checking and downloading are deliberately two explicit steps.
-    updateCheckStatus: makeKey<{ message: string, isError: boolean, updateAvailable: boolean }>('update-check-status'),
+    // button - checking and downloading are deliberately two explicit steps. releaseNotes is the
+    // GitHub release's auto-generated changelog body, shown before the user commits to downloading.
+    updateCheckStatus: makeKey<{
+        message: string, isError: boolean, updateAvailable: boolean, releaseNotes?: string,
+    }>('update-check-status'),
 };
 
 export function getToRenderIPCPerCoil(coil: CoilID) {

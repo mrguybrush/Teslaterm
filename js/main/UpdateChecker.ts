@@ -2,7 +2,6 @@ import {app} from "electron";
 import {spawn} from "child_process";
 import * as fs from "fs";
 import * as https from "https";
-import JSZip from "jszip";
 import * as path from "path";
 import {IPC_CONSTANTS_TO_RENDERER} from "../common/IPCConstantsToRenderer";
 import {processIPC} from "./ipc/IPCProvider";
@@ -20,6 +19,7 @@ interface GithubReleaseAsset {
 
 interface GithubRelease {
     tag_name: string;
+    body: string;
     assets: GithubReleaseAsset[];
 }
 
@@ -31,8 +31,10 @@ let pendingRelease: GithubRelease | undefined;
 // The "Check for updates" button lives in the connect screen's Settings dialog, which is shown
 // before a coil is even connected and has no toast display mounted - so status goes out over its
 // own dedicated channel instead of the usual (coil-oriented) toast system.
-function reportStatus(message: string, isError: boolean = false, updateAvailable: boolean = false) {
-    processIPC.send(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, {isError, message, updateAvailable});
+function reportStatus(
+    message: string, isError: boolean = false, updateAvailable: boolean = false, releaseNotes: string = undefined,
+) {
+    processIPC.send(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, {isError, message, releaseNotes, updateAvailable});
 }
 
 // Both the GitHub API response and the asset download itself can come back as a redirect, so both
@@ -66,8 +68,7 @@ function httpGetJson<T>(url: string): Promise<T> {
 
 // Downloads to a temporary file first and only renames it into place once the byte count matches
 // what the server announced - a connection that drops early can otherwise still fire a "finish"
-// event with a silently truncated file, which is exactly the kind of corruption that leads to a
-// broken app.asar down the line.
+// event with a silently truncated file.
 function httpDownload(url: string, destPath: string, expectedSize?: number): Promise<void> {
     return new Promise((resolve, reject) => {
         https.get(url, {headers: {"User-Agent": "Teslaterm-Updater"}}, (res) => {
@@ -117,37 +118,24 @@ function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
     return false;
 }
 
-async function extractZipTo(zipPath: string, targetDir: string) {
-    const zip = await JSZip.loadAsync(fs.readFileSync(zipPath));
-    for (const relativePath of Object.keys(zip.files)) {
-        const entry = zip.files[relativePath];
-        const destPath = path.join(targetDir, relativePath);
-        if (entry.dir) {
-            fs.mkdirSync(destPath, {recursive: true});
-        } else {
-            fs.mkdirSync(path.dirname(destPath), {recursive: true});
-            const content = await entry.async("nodebuffer");
-            fs.writeFileSync(destPath, content);
-        }
-    }
-}
-
-// Writes a small batch script that waits for this process to actually exit (its files are locked
-// while running, so they can't be overwritten in place), then robocopies the newly extracted build
-// over the current install directory and relaunches it.
-//
-// robocopy (not xcopy) specifically because Windows can take a moment after a process disappears
-// from the task list to actually release its last file handles/memory-mapped views (app.asar in
-// particular, since Electron maps it) - xcopy has no retry logic and a single locked file mid-copy
-// can leave a mismatched mix of old and new files behind (a broken app.asar being the most visible
-// symptom: Electron refuses to start with an "Invalid package" error). robocopy's /R and /W make it
-// retry a locked file instead of limping on. It only adds/overwrites files that exist in the new
-// build - user data living alongside the exe (tt-ui-config.json, the midis/ folder, flight
-// recordings, ...) isn't part of the release zip, so it's never touched.
-//
-// The exe is only relaunched if robocopy actually reports success (exit code < 8); otherwise the
-// old install is left as-is rather than launching something that was only half-updated.
-function writeUpdateScript(scriptPath: string, stagingDir: string, installDir: string, exeName: string): void {
+// Writes a small batch script that:
+//   1. waits for this process to actually exit (its files are locked while running),
+//   2. extracts the downloaded zip using Windows' own bundled tar.exe (bsdtar, which auto-detects
+//      zip format) rather than a JS unzip library - a 100+MB archive containing one large binary
+//      blob (app.asar) is exactly the kind of thing a pure-JS decompressor can get subtly wrong,
+//      and doing it from inside the still-running app added memory pressure for no benefit. Native
+//      tar is what actually ships and gets tested on every Windows 10/11 install,
+//   3. robocopies the extracted build over the current install directory (retrying a few times in
+//      case a lingering helper process/file handle needs a moment to let go - see /R and /W) - it
+//      only adds/overwrites files that exist in the new build, so user data alongside the exe
+//      (tt-ui-config.json, midis/, flight recordings, ...) is never touched since it isn't part of
+//      the release zip,
+//   4. relaunches the exe - but only if robocopy actually reported success (exit code < 8);
+//      otherwise the old install is left alone instead of launching something half-updated.
+function writeUpdateScript(
+    scriptPath: string, zipPath: string, stagingDir: string, installDir: string, exeName: string,
+): void {
+    const logPath = path.join(path.dirname(scriptPath), "update-error.log");
     const script = [
         "@echo off",
         `set PID=${process.pid}`,
@@ -160,12 +148,19 @@ function writeUpdateScript(scriptPath: string, stagingDir: string, installDir: s
         // Extra grace period for the OS to finish releasing file handles/memory maps after the
         // process has already disappeared from the task list.
         "timeout /t 2 /nobreak >NUL",
+        `mkdir "${stagingDir}" 2>NUL`,
+        `tar -xf "${zipPath}" -C "${stagingDir}"`,
+        "if errorlevel 1 (",
+        `  echo Extraction failed with tar exit code %errorlevel%. > "${logPath}"`,
+        "  goto end",
+        ")",
         `robocopy "${stagingDir}" "${installDir}" /E /R:5 /W:2 /NFL /NDL /NJH /NJS >NUL`,
         "if errorlevel 8 (",
-        `  echo Update copy failed, see robocopy exit code %errorlevel%. > "${path.join(path.dirname(scriptPath), "update-error.log")}"`,
+        `  echo Update copy failed, robocopy exit code %errorlevel%. > "${logPath}"`,
         ") else (",
         `  start "" "${path.join(installDir, exeName)}"`,
         ")",
+        ":end",
         `del "%~f0"`,
     ].join("\r\n");
     fs.writeFileSync(scriptPath, script, "utf-8");
@@ -191,7 +186,12 @@ export async function checkForUpdates() {
             return;
         }
         pendingRelease = release;
-        reportStatus(`Update available: ${release.tag_name} (currently v${currentVersion}).`, false, true);
+        reportStatus(
+            `Update available: ${release.tag_name} (currently v${currentVersion}).`,
+            false,
+            true,
+            release.body || undefined,
+        );
     } catch (e) {
         reportStatus(`Update check failed: ${e.message || e}`, true);
     }
@@ -212,13 +212,10 @@ export async function downloadAndInstallUpdate() {
 
         reportStatus("Installing update and restarting...");
         const stagingDir = path.join(tempDir, "extracted");
-        fs.mkdirSync(stagingDir, {recursive: true});
-        await extractZipTo(zipPath, stagingDir);
-
         const installDir = path.dirname(app.getPath("exe"));
         const exeName = path.basename(app.getPath("exe"));
         const scriptPath = path.join(tempDir, "apply-update.bat");
-        writeUpdateScript(scriptPath, stagingDir, installDir, exeName);
+        writeUpdateScript(scriptPath, zipPath, stagingDir, installDir, exeName);
 
         pendingRelease = undefined;
         spawn("cmd.exe", ["/c", scriptPath], {cwd: tempDir, detached: true, stdio: "ignore"}).unref();
