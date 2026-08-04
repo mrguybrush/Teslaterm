@@ -418,13 +418,22 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         return map;
     }
 
+    // Windows implements AltGr as a Left-Ctrl+Right-Alt chord, and Chromium/Electron doesn't
+    // always synthesize the 'AltGraph' virtual modifier from that reliably (depends on how the
+    // active keyboard layout gets detected) - so Control+Alt both held is treated as AltGr too,
+    // not just a direct AltGraph report, since that's what physically happens on the keyboard.
+    private isAltGr(ev: { getModifierState(key: string): boolean }): boolean {
+        return ev.getModifierState('AltGraph')
+            || (ev.getModifierState('Control') && ev.getModifierState('Alt'));
+    }
+
     private readonly onKeyDown = (ev: KeyboardEvent) => {
         if (isTypingTarget(ev.target)) {
             // Don't hijack keystrokes meant for a text field (e.g. max_tr_pw, a playlist name)
             // just because the piano is active in the background on another tab.
             return;
         }
-        this.altGrHeld = ev.getModifierState('AltGraph');
+        this.altGrHeld = this.isAltGr(ev);
         if (this.interactionBlocked() || ev.repeat) {
             return;
         }
@@ -438,7 +447,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         if (isTypingTarget(ev.target)) {
             return;
         }
-        this.altGrHeld = ev.getModifierState('AltGraph');
+        this.altGrHeld = this.isAltGr(ev);
         const note = this.buildKeyMap().get(ev.key.toLowerCase());
         if (note !== undefined) {
             this.release(note);
@@ -1300,7 +1309,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                                 'tt-piano-white-key' + (this.state.pressedBaseNotes.has(w.note) ? ' active' : '')
                             }
                             onMouseDown={(ev) => {
-                                this.altGrHeld = ev.getModifierState('AltGraph');
+                                this.altGrHeld = this.isAltGr(ev);
                                 this.press(w.note);
                             }}
                             onMouseUp={() => this.release(w.note)}
@@ -1315,7 +1324,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                             }
                             onMouseDown={(ev) => {
                                 ev.stopPropagation();
-                                this.altGrHeld = ev.getModifierState('AltGraph');
+                                this.altGrHeld = this.isAltGr(ev);
                                 this.press(black.note);
                             }}
                             onMouseUp={(ev) => {
