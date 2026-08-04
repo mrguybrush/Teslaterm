@@ -1,3 +1,4 @@
+import {shell} from "electron";
 import React from "react";
 import {Button, Form, Modal, Toast, ToastContainer} from "react-bootstrap";
 import {UD3ConnectionType} from "../../common/constants";
@@ -248,6 +249,17 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             >
                 Switch to {otherMode} mode
             </Button>
+            <div>
+                <a
+                    href={'https://github.com/mrguybrush/Teslaterm'}
+                    onClick={(ev) => {
+                        ev.preventDefault();
+                        shell.openExternal('https://github.com/mrguybrush/Teslaterm');
+                    }}
+                >
+                    Teslaterm on GitHub
+                </a>
+            </div>
         </div>;
     }
 

@@ -93,11 +93,24 @@ export class CoilSynth {
         osc.stop(now + 0.05);
     }
 
+    // Creating an AudioContext and letting the audio hardware actually spin up both take a moment
+    // - if that first happens on the very first key press, that press gets stuck with the extra
+    // delay. Call this as soon as preview mode is available (before any note is actually needed)
+    // so that startup cost is paid upfront instead of showing up as latency on the first note.
+    public prewarm() {
+        this.ensureContext();
+        if (this.audioContext.state === 'suspended') {
+            void this.audioContext.resume();
+        }
+    }
+
     private ensureContext() {
         if (this.audioContext) {
             return;
         }
-        this.audioContext = new AudioContext();
+        // 'interactive' is the lowest-latency preset (smallest internal buffer) - already the
+        // default with no options, but named explicitly here since it's the reason this exists.
+        this.audioContext = new AudioContext({latencyHint: 'interactive'});
         const shaper = this.audioContext.createWaveShaper();
         shaper.curve = CoilSynth.makeDistortionCurve();
         shaper.oversample = '4x';

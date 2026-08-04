@@ -337,6 +337,9 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         if (this.props.active) {
             this.attachListeners();
         }
+        if (this.state.previewMode) {
+            this.synth.prewarm();
+        }
         // Widen the pitch bend range once so slides can cover more than +-2 semitones.
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, controlChangeBytes(0x65, 0x00));
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, controlChangeBytes(0x64, 0x00));
@@ -353,6 +356,12 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                 this.detachListeners();
                 this.releaseAll();
             }
+        }
+        // Pays the AudioContext startup cost as soon as preview mode turns on, instead of on
+        // whatever key happens to be pressed first - that first note would otherwise carry an
+        // extra, very noticeable delay while the audio hardware spins up.
+        if (!prevState.previewMode && this.state.previewMode) {
+            this.synth.prewarm();
         }
         // The metronome's interval is otherwise fixed at whatever BPM was current when it started.
         if (prevState.bpm !== this.state.bpm && this.state.metronomeEnabled) {
