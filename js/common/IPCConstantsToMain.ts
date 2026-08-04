@@ -1,6 +1,7 @@
 import {MidiPlaylistEntry, MidiSimplifyAlgorithm} from "./MidiPlaylistTypes";
 import {MixerLayer, VolumeKey, VolumeUpdate} from "./MixerTypes";
 import {MultiConnectionOptions, SingleConnectionOptions} from './SingleConnectionOptions';
+import {AutonomousPreset} from "./UIConfig";
 import {CoilID, coilSuffix} from "./constants";
 import {ConnectionPreset, FaderID} from "./IPCConstantsToRenderer";
 
@@ -79,6 +80,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         stopScript: makeKey<undefined>('stop-script'),
     },
     setAutoFlightRecording: makeKey<boolean>('setAutoFlightRecording'),
+    setAutonomousPresets: makeKey<AutonomousPreset[]>('setAutonomousPresets'),
     setDarkMode: makeKey<boolean>('setDarkMode'),
     setScopeBackgroundColor: makeKey<string>('setScopeBackgroundColor'),
     setScopeGridColor: makeKey<string>('setScopeGridColor'),

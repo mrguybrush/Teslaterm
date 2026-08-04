@@ -3,8 +3,23 @@ import {VolumeSetting} from "./MixerTypes";
 import {AdvancedOptions} from "./Options";
 import {FullConnectionOptions} from "./SingleConnectionOptions";
 
+// A user-saved snapshot of the Piano panel's Autonomous mode parameters - the built-in presets
+// shown alongside these live only in the renderer (they're fixed), so only custom, user-created
+// ones need to be persisted here.
+export interface AutonomousPreset {
+    name: string;
+    root: number;
+    scale: string;
+    density: number;
+    rangeOctaves: number;
+    randomness: number;
+    bpm: number;
+    droidMode: boolean;
+}
+
 export interface SyncedUIConfig {
     connectionPresets: ConnectionPreset[];
+    autonomousPresets: AutonomousPreset[];
     darkMode: boolean;
     centralTelemetry: string[];
     midiPrograms: string[];

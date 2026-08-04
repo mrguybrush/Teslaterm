@@ -134,6 +134,7 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                             active={this.state.pianoActive}
                             setActive={(pianoActive) => this.setState({pianoActive})}
                             visible={bottomPanel === BottomPanelMode.piano}
+                            autonomousPresets={this.props.config.autonomousPresets}
                         />
                         {bottomPanel === BottomPanelMode.frequency &&
                             <FrequencyScopePanel coil={this.props.coil}/>}

@@ -95,6 +95,9 @@ export class CommonMiscIPC {
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, (autoFlightRecording) => {
             setUIConfig({autoFlightRecording});
         });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setAutonomousPresets, (autonomousPresets) => {
+            setUIConfig({autonomousPresets});
+        });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setSliderSize, (sliderSize) => {
             setUIConfig({sliderSize});
         });

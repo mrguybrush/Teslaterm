@@ -1,6 +1,7 @@
 import React from "react";
 import {Form} from "react-bootstrap";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
+import {AutonomousPreset} from "../../common/UIConfig";
 import {CoilSynth} from "../audio/CoilSynth";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
@@ -13,6 +14,9 @@ export interface PianoPanelProps {
     setActive: (active: boolean) => void;
     // Whether to actually render the on-screen keyboard/controls (only when this tab is selected).
     visible: boolean;
+    // User-saved Autonomous mode presets, persisted outside this component - the 10 built-in ones
+    // live only here since they never change.
+    autonomousPresets: AutonomousPreset[];
 }
 
 // Input types that don't consume regular letter/digit keystrokes, so focus sitting on one of
@@ -154,6 +158,22 @@ const AUTONOMOUS_NOTE_HOLD_FRACTION = 0.85;
 // Small fixed chance of a rest instead of a note each step, so the line breathes a little instead
 // of being a nonstop stream of notes.
 const AUTONOMOUS_REST_PROBABILITY = 0.12;
+const AUTONOMOUS_DROID_MODE_DEFAULT = false;
+
+// 10 starting points covering a spread of moods - all just combinations of the same 5 parameters
+// (plus droid mode and the shared BPM), nothing these presets do couldn't be dialed in by hand.
+const BUILT_IN_AUTONOMOUS_PRESETS: AutonomousPreset[] = [
+    {bpm: 70, density: 1, droidMode: false, name: 'Epic', randomness: 0.25, rangeOctaves: 3, root: 2, scale: 'minor'},
+    {bpm: 160, density: 5, droidMode: true, name: 'Droid', randomness: 0.8, rangeOctaves: 1, root: 0, scale: 'chromatic'},
+    {bpm: 60, density: 0.5, droidMode: false, name: 'Calm', randomness: 0.15, rangeOctaves: 2, root: 0, scale: 'pentatonicMajor'},
+    {bpm: 240, density: 8, droidMode: false, name: 'Chaotic', randomness: 1, rangeOctaves: 3, root: 0, scale: 'chromatic'},
+    {bpm: 90, density: 1, droidMode: false, name: 'Mysterious', randomness: 0.5, rangeOctaves: 2, root: 6, scale: 'minor'},
+    {bpm: 130, density: 3, droidMode: false, name: 'Playful', randomness: 0.35, rangeOctaves: 2, root: 0, scale: 'pentatonicMajor'},
+    {bpm: 65, density: 0.75, droidMode: false, name: 'Melancholic', randomness: 0.1, rangeOctaves: 1, root: 9, scale: 'minor'},
+    {bpm: 80, density: 1.5, droidMode: true, name: 'Space', randomness: 0.6, rangeOctaves: 2, root: 0, scale: 'chromatic'},
+    {bpm: 110, density: 2, droidMode: false, name: 'Heroic', randomness: 0.2, rangeOctaves: 3, root: 0, scale: 'major'},
+    {bpm: 190, density: 8, droidMode: true, name: 'Glitch', randomness: 0.9, rangeOctaves: 1, root: 0, scale: 'chromatic'},
+];
 
 function clampNote(note: number): number {
     return Math.max(0, Math.min(127, note));
@@ -233,6 +253,14 @@ interface PianoPanelState {
     autonomousDensity: number;
     autonomousRangeOctaves: number;
     autonomousRandomness: number;
+    // Glides continuously between generated notes instead of retriggering discretely, for a
+    // sliding, warbling "R2D2" character - not one of the 5 core parameters, an extra toggle.
+    autonomousDroidMode: boolean;
+    // Name of the currently loaded preset ('' means unsaved/custom), and the name typed into the
+    // "save as" field - kept separate so loading a preset doesn't clobber whatever the user is
+    // mid-typing for a new one.
+    autonomousPresetName: string;
+    newAutonomousPresetName: string;
 }
 
 // Natural note letters mapped to their pitch class in the same octave the normal keyboard layout
@@ -322,6 +350,9 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     private metronomeBeatIndex = 0;
     private autonomousHandle?: ReturnType<typeof setInterval>;
     private autonomousHoldHandle?: ReturnType<typeof setTimeout>;
+    // Droid mode's note-to-note pitch ramp - a separate handle from the manual Slide feature's,
+    // even though both ultimately animate the same channel-wide MIDI pitch bend.
+    private autonomousGlideHandle?: ReturnType<typeof setInterval>;
     // Current position within the scale-degree range (0..scaleStepCount()-1), driving the random
     // walk between steps.
     private autonomousPositionIndex = 0;
@@ -352,8 +383,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             arpeggioEnabled: false,
             arpeggioNotesPerBeat: ARPEGGIO_NOTES_PER_BEAT_DEFAULT,
             autonomousDensity: AUTONOMOUS_DENSITY_DEFAULT,
+            autonomousDroidMode: AUTONOMOUS_DROID_MODE_DEFAULT,
             autonomousEnabled: false,
             autonomousPlaying: false,
+            autonomousPresetName: '',
             autonomousRandomness: AUTONOMOUS_RANDOMNESS_DEFAULT,
             autonomousRangeOctaves: AUTONOMOUS_RANGE_OCTAVES_DEFAULT,
             autonomousRoot: AUTONOMOUS_ROOT_DEFAULT,
@@ -370,6 +403,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             metronomeEnabled: false,
             metronomeFlash: false,
             metronomeSoundEnabled: false,
+            newAutonomousPresetName: '',
             previewMode: true,
             pressedBaseNotes: new Set(),
             recordingBeat: false,
@@ -1022,19 +1056,25 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             clearTimeout(this.autonomousHoldHandle);
             this.autonomousHoldHandle = undefined;
         }
+        this.finishAutonomousGlide();
         if (this.autonomousSoundingNote !== undefined) {
             this.stopNote('auto', this.autonomousSoundingNote);
             this.autonomousSoundingNote = undefined;
         }
+        // Harmless if droid mode never actually bent the pitch - only resets anything left mid-bend.
+        this.sendMidi(pitchBendBytes(0));
         this.setState({autonomousPlaying: false});
     }
 
     private autonomousStep() {
-        if (this.autonomousSoundingNote !== undefined) {
-            this.stopNote('auto', this.autonomousSoundingNote);
-            this.autonomousSoundingNote = undefined;
-        }
+        this.finishAutonomousGlide();
+        const stepMs = this.beatMs() / this.state.autonomousDensity;
         if (Math.random() < AUTONOMOUS_REST_PROBABILITY) {
+            if (this.autonomousSoundingNote !== undefined) {
+                this.stopNote('auto', this.autonomousSoundingNote);
+                this.sendMidi(pitchBendBytes(0));
+                this.autonomousSoundingNote = undefined;
+            }
             return;
         }
         const stepCount = Math.max(1, this.autonomousScaleStepCount());
@@ -1048,16 +1088,100 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         const octave = Math.floor(this.autonomousPositionIndex / intervals.length);
         const degree = this.autonomousPositionIndex % intervals.length;
         const note = clampNote(60 + this.state.autonomousRoot + octave * 12 + intervals[degree] + this.state.transpose);
+        const holdMs = Math.max(20, stepMs * AUTONOMOUS_NOTE_HOLD_FRACTION);
+        if (this.state.autonomousDroidMode && this.autonomousSoundingNote !== undefined) {
+            // The sliding, warbling transition between pitches is what actually reads as "droid",
+            // more than the pitches themselves - so glide continuously instead of retriggering.
+            this.autonomousGlideTo(this.autonomousSoundingNote, note, holdMs);
+            return;
+        }
+        if (this.autonomousSoundingNote !== undefined) {
+            this.stopNote('auto', this.autonomousSoundingNote);
+        }
         this.playNote('auto', note);
         this.autonomousSoundingNote = note;
-        const stepMs = this.beatMs() / this.state.autonomousDensity;
-        const holdMs = Math.max(20, stepMs * AUTONOMOUS_NOTE_HOLD_FRACTION);
-        this.autonomousHoldHandle = setTimeout(() => {
-            if (this.autonomousSoundingNote === note) {
-                this.stopNote('auto', note);
-                this.autonomousSoundingNote = undefined;
+        if (!this.state.autonomousDroidMode) {
+            this.autonomousHoldHandle = setTimeout(() => {
+                if (this.autonomousSoundingNote === note) {
+                    this.stopNote('auto', note);
+                    this.autonomousSoundingNote = undefined;
+                }
+            }, holdMs);
+        }
+    }
+
+    // Reuses the same channel-wide MIDI pitch-bend approach as the manual Slide feature's
+    // slideTo(), just driving a different voice ('auto' instead of 'mono').
+    private autonomousGlideTo(fromNote: number, toNote: number, durationMs: number) {
+        this.finishAutonomousGlide();
+        const diff = toNote - fromNote;
+        const steps = Math.max(1, Math.round(durationMs / SLIDE_STEP_MS));
+        let step = 0;
+        this.autonomousGlideHandle = setInterval(() => {
+            step++;
+            const progress = Math.min(1, step / steps);
+            this.sendMidi(pitchBendBytes(diff * progress));
+            if (this.state.previewMode) {
+                this.synth.setNoteFrequency('auto', fromNote + diff * progress);
             }
-        }, holdMs);
+            if (progress >= 1) {
+                this.finishAutonomousGlide();
+                this.stopNote('auto', fromNote);
+                this.sendMidi(pitchBendBytes(0));
+                this.playNote('auto', toNote);
+                this.autonomousSoundingNote = toNote;
+            }
+        }, SLIDE_STEP_MS);
+    }
+
+    private finishAutonomousGlide() {
+        if (this.autonomousGlideHandle !== undefined) {
+            clearInterval(this.autonomousGlideHandle);
+            this.autonomousGlideHandle = undefined;
+        }
+    }
+
+    private applyAutonomousPreset(preset: AutonomousPreset) {
+        this.setState({
+            autonomousDensity: preset.density,
+            autonomousDroidMode: preset.droidMode,
+            autonomousPresetName: preset.name,
+            autonomousRandomness: preset.randomness,
+            autonomousRangeOctaves: preset.rangeOctaves,
+            autonomousRoot: preset.root,
+            autonomousScale: preset.scale as AutonomousScale,
+            bpm: preset.bpm,
+        });
+    }
+
+    private saveAutonomousPreset() {
+        const name = this.state.newAutonomousPresetName.trim();
+        if (!name) {
+            return;
+        }
+        const preset: AutonomousPreset = {
+            bpm: this.state.bpm,
+            density: this.state.autonomousDensity,
+            droidMode: this.state.autonomousDroidMode,
+            name,
+            randomness: this.state.autonomousRandomness,
+            rangeOctaves: this.state.autonomousRangeOctaves,
+            root: this.state.autonomousRoot,
+            scale: this.state.autonomousScale,
+        };
+        const withoutSameName = this.props.autonomousPresets.filter((p) => p.name !== name);
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.setAutonomousPresets, [...withoutSameName, preset]);
+        this.setState({autonomousPresetName: name, newAutonomousPresetName: ''});
+    }
+
+    private deleteAutonomousPreset(name: string) {
+        processIPC.send(
+            IPC_CONSTANTS_TO_MAIN.setAutonomousPresets,
+            this.props.autonomousPresets.filter((p) => p.name !== name),
+        );
+        if (this.state.autonomousPresetName === name) {
+            this.setState({autonomousPresetName: ''});
+        }
     }
 
     // --- Loop station --------------------------------------------------------------------------
@@ -1538,6 +1662,36 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                 {this.state.autonomousEnabled && <>
                     <Form.Select
                         size={'sm'}
+                        style={{width: '11em'}}
+                        title={'Preset'}
+                        value={this.state.autonomousPresetName}
+                        onChange={(ev) => {
+                            const preset = [...BUILT_IN_AUTONOMOUS_PRESETS, ...this.props.autonomousPresets]
+                                .find((p) => p.name === ev.target.value);
+                            if (preset) {
+                                this.applyAutonomousPreset(preset);
+                            }
+                        }}
+                    >
+                        <option value={''}>Custom</option>
+                        <optgroup label={'Built-in'}>
+                            {BUILT_IN_AUTONOMOUS_PRESETS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        </optgroup>
+                        {this.props.autonomousPresets.length > 0 && <optgroup label={'Saved'}>
+                            {this.props.autonomousPresets.map((p) => (
+                                <option key={p.name} value={p.name}>{p.name}</option>
+                            ))}
+                        </optgroup>}
+                    </Form.Select>
+                    {this.props.autonomousPresets.some((p) => p.name === this.state.autonomousPresetName) && <button
+                        type={'button'}
+                        className={'btn btn-outline-danger btn-sm'}
+                        onClick={() => this.deleteAutonomousPreset(this.state.autonomousPresetName)}
+                    >
+                        Delete preset
+                    </button>}
+                    <Form.Select
+                        size={'sm'}
                         style={{width: '4.5em'}}
                         title={'Root note'}
                         value={this.state.autonomousRoot}
@@ -1609,6 +1763,14 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                         />
                         <span>randomness</span>
                     </div>
+                    <Form.Check
+                        type={'checkbox'}
+                        id={'piano-autonomous-droid'}
+                        label={'Droid mode'}
+                        title={'Glides continuously between notes instead of retriggering discretely, for an R2D2-style warble.'}
+                        checked={this.state.autonomousDroidMode}
+                        onChange={(ev) => this.setState({autonomousDroidMode: ev.target.checked})}
+                    />
                     <button
                         type={'button'}
                         className={'btn btn-sm ' + (this.state.autonomousPlaying ? 'btn-danger' : 'btn-success')}
@@ -1618,6 +1780,24 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     </button>
                 </>}
             </div>
+            {this.state.autonomousEnabled && <div className={'tt-piano-loop-station-bar'}>
+                <Form.Control
+                    type={'text'}
+                    size={'sm'}
+                    style={{width: '10em'}}
+                    placeholder={'New preset name'}
+                    value={this.state.newAutonomousPresetName}
+                    onChange={(ev) => this.setState({newAutonomousPresetName: ev.target.value})}
+                />
+                <button
+                    type={'button'}
+                    className={'btn btn-secondary btn-sm'}
+                    disabled={this.state.newAutonomousPresetName.trim().length === 0}
+                    onClick={() => this.saveAutonomousPreset()}
+                >
+                    Save current settings as preset
+                </button>
+            </div>}
         </div>;
     }
 

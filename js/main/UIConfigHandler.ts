@@ -78,6 +78,9 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
     if (object.connectionPresets === undefined) {
         object.connectionPresets = [];
     }
+    if (object.autonomousPresets === undefined) {
+        object.autonomousPresets = [];
+    }
     object.advancedOptions = fixAdvancedOptions(object.advancedOptions);
     object.lastConnectOptions = fixConnectionOptions(object.lastConnectOptions);
     for (const preset of object.connectionPresets) {
