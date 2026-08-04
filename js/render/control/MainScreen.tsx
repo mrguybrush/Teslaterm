@@ -40,6 +40,7 @@ export interface MainScreenProps {
     coils: CoilID[];
     multicoil: boolean;
     config: SyncedUIConfig;
+    setDarkMode: (newVal: boolean) => any;
 }
 
 export class MainScreen extends ScreenWithDrop<MainScreenProps, MainScreenState> {
@@ -135,6 +136,7 @@ export class MainScreen extends ScreenWithDrop<MainScreenProps, MainScreenState>
                                         ttConfig={this.props.ttConfig}
                                         config={this.props.config}
                                         toasts={this.toastsForCoil()}
+                                        setDarkMode={this.props.setDarkMode}
                                     />
                                 </Tab.Pane>
                                 {...coils}
@@ -210,6 +212,7 @@ export class MainScreen extends ScreenWithDrop<MainScreenProps, MainScreenState>
             toasts={this.toastsForCoil(coil)}
             level={type}
             returnToConnect={this.props.returnToConnect}
+            setDarkMode={this.props.setDarkMode}
         />;
     }
 

@@ -113,6 +113,7 @@ export class App extends TTComponent<{}, TopLevelState> {
                 config={this.state.config}
                 coils={this.state.coils}
                 multicoil={this.state.multicoil}
+                setDarkMode={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setDarkMode, newVal)}
             />;
         } else if (this.state.screen === TopScreen.connect) {
             return <ConnectScreen

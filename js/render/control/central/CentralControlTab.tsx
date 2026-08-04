@@ -17,6 +17,7 @@ export interface ControlTabProps {
     config: SyncedUIConfig;
     coils: CoilState[];
     toasts: ToastsProps;
+    setDarkMode: (newVal: boolean) => any;
 }
 
 export class CentralControlTab extends TTComponent<ControlTabProps, {}> {
@@ -42,6 +43,8 @@ export class CentralControlTab extends TTComponent<ControlTabProps, {}> {
                         }}
                         returnToConnect={() => {
                         }}
+                        darkMode={this.props.config.darkMode}
+                        setDarkMode={this.props.setDarkMode}
                     />
                 </div>
                 <div className={'tt-central-telemetry-and-sliders'}>

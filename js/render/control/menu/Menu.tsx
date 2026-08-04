@@ -21,6 +21,8 @@ export interface MenuProps {
     connectionStatus: ConnectionStatus;
     ttConfig: TTConfig;
     returnToConnect: () => any;
+    darkMode: boolean;
+    setDarkMode: (newVal: boolean) => any;
 }
 
 function getConnectionButtonText(status: ConnectionStatus) {
@@ -105,6 +107,7 @@ export class MenuBar extends TTComponent<MenuProps, {}> {
                 </>
             );
         } else {
+            const otherMode = this.props.darkMode ? 'light' : 'dark';
             return (
                 <>
                     {commandsMenuItem}
@@ -120,6 +123,12 @@ export class MenuBar extends TTComponent<MenuProps, {}> {
                         dataKey={IPC_CONSTANTS_TO_RENDERER.menu.setScriptName}
                         disabled={!allowInteraction}
                     />
+                    <Button
+                        variant={otherMode}
+                        onClick={() => this.props.setDarkMode(!this.props.darkMode)}
+                    >
+                        Switch to {otherMode} mode
+                    </Button>
                 </>
             );
         }

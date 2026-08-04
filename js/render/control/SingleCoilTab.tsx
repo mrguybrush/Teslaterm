@@ -32,6 +32,7 @@ export interface SingleCoilTabProps {
     level: 'single-coil' | 'combined';
     returnToConnect: () => any;
     config: SyncedUIConfig;
+    setDarkMode: (newVal: boolean) => any;
 }
 
 enum BottomPanelMode {
@@ -64,6 +65,8 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                         ttConfig={this.props.ttConfig}
                         level={{level: this.props.level, coil: this.props.coil, state: this.props.ud3State}}
                         returnToConnect={this.props.returnToConnect}
+                        darkMode={this.props.config.darkMode}
+                        setDarkMode={this.props.setDarkMode}
                     />
                 </div>
                 <div className={'tt-terminal-and-gauges'}>
