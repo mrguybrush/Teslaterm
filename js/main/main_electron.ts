@@ -1,9 +1,13 @@
 import {app, BrowserWindow} from "electron";
+import * as fs from "fs";
 import * as path from "path";
 import {init} from "./init";
 import {getUIConfig, saveUIConfigNow} from "./UIConfigHandler";
 
 export let mainWindow: BrowserWindow;
+
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf-8"));
+const windowTitle = `Teslaterm v${packageJson.version}`;
 
 function createWindow() {
     init();
@@ -12,6 +16,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         height: windowHeight,
         width: windowWidth,
+        title: windowTitle,
         webPreferences: {
             // TODO the goal is for both of these to be removed at some point
             nodeIntegration: true,
@@ -26,6 +31,12 @@ function createWindow() {
     // mainWindow.webContents.openDevTools();
 
     mainWindow.setMenuBarVisibility(false);
+
+    // Electron otherwise resets the window title back to the page's own <title> (plain
+    // "Teslaterm", with no version) as soon as the page finishes loading.
+    mainWindow.on("page-title-updated", (event) => {
+        event.preventDefault();
+    });
 
     mainWindow.on("closed", () => {
         mainWindow = null;

@@ -115,9 +115,27 @@ const SLIDE_STEP_MS = 20;
 // smoothly cover the full width of this 2-octave keyboard.
 const BEND_RANGE_SEMITONES = 24;
 const MIDI_CHANNEL = 0;
+// Common time signatures for the metronome - only the beat count (numerator) matters here, since
+// that's all that decides which beat in the bar gets the accent.
+const TIME_SIGNATURES: Array<{ label: string, beats: number }> = [
+    {beats: 4, label: '4/4'},
+    {beats: 3, label: '3/4'},
+    {beats: 2, label: '2/4'},
+    {beats: 6, label: '6/8'},
+];
+const BEATS_PER_BAR_DEFAULT = 4;
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 function clampNote(note: number): number {
     return Math.max(0, Math.min(127, note));
+}
+
+// MIDI 60 = C4 (matches NOTE_LETTER_TO_MIDI's c: 60 below) - shown on each on-screen key so it's
+// clear which actual pitch a key/letter triggers, not just which letter triggers it.
+function noteName(midiNote: number): string {
+    const name = NOTE_NAMES[((midiNote % 12) + 12) % 12];
+    const octave = Math.floor(midiNote / 12) - 1;
+    return `${name}${octave}`;
 }
 
 function noteOnBytes(note: number): Uint8Array {
@@ -160,6 +178,10 @@ interface PianoPanelState {
     metronomeEnabled: boolean;
     // Flips every beat while the metronome runs, driving the visual pulse.
     metronomeFlash: boolean;
+    // Audible click alongside the visual pulse - purely local (Web Audio), never sent to the coil.
+    metronomeSoundEnabled: boolean;
+    // Numerator of the selected time signature - decides which beat in the bar gets the accent.
+    beatsPerBar: number;
     loopStationEnabled: boolean;
     loopRecording: boolean;
     // Set once the first layer is closed; undefined means no loop length has been established yet.
@@ -258,6 +280,8 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     private readonly tapTimestamps: number[] = [];
     private readonly synth = new CoilSynth();
     private metronomeHandle?: ReturnType<typeof setInterval>;
+    // Which beat of the bar the metronome is currently on - decides which click gets the accent.
+    private metronomeBeatIndex = 0;
 
     // The loop station's timing/audio state lives in plain instance fields rather than React
     // state - it's driven by setTimeout chains that need to read the current data synchronously
@@ -286,6 +310,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             beatPattern: [],
             beatPatternBeats: 1,
             beatRecordEnabled: false,
+            beatsPerBar: BEATS_PER_BAR_DEFAULT,
             bpm: BPM_DEFAULT,
             layout: 'de',
             loopLayersView: [],
@@ -293,6 +318,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             loopStationEnabled: false,
             metronomeEnabled: false,
             metronomeFlash: false,
+            metronomeSoundEnabled: false,
             previewMode: true,
             pressedBaseNotes: new Set(),
             recordingBeat: false,
@@ -433,7 +459,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             // just because the piano is active in the background on another tab.
             return;
         }
-        this.altGrHeld = this.isAltGr(ev);
+        this.setAltGrHeld(this.isAltGr(ev));
         if (this.interactionBlocked() || ev.repeat) {
             return;
         }
@@ -447,7 +473,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         if (isTypingTarget(ev.target)) {
             return;
         }
-        this.altGrHeld = this.isAltGr(ev);
+        this.setAltGrHeld(this.isAltGr(ev));
         const note = this.buildKeyMap().get(ev.key.toLowerCase());
         if (note !== undefined) {
             this.release(note);
@@ -659,6 +685,29 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
+    // A running arpeggio already re-checks AltGr on every step by itself, but a held block chord
+    // has no such loop to re-check from - so switching major/minor while it's already sounding
+    // needs to explicitly retrigger it, otherwise AltGr only ever takes effect if it's already held
+    // before the chord key goes down.
+    private setAltGrHeld(newValue: boolean) {
+        if (newValue === this.altGrHeld) {
+            return;
+        }
+        this.altGrHeld = newValue;
+        for (const [baseNote, notes] of this.chordNotesFor) {
+            const rootNote = notes[0];
+            for (const chordNote of notes) {
+                this.stopNote(`chord-${baseNote}-${chordNote}`, chordNote);
+            }
+            const intervals = this.altGrHeld ? ARPEGGIO_INTERVALS_MINOR : ARPEGGIO_INTERVALS_MAJOR;
+            const newNotes = intervals.map((offset) => clampNote(rootNote + offset));
+            this.chordNotesFor.set(baseNote, newNotes);
+            for (const chordNote of newNotes) {
+                this.playNote(`chord-${baseNote}-${chordNote}`, chordNote);
+            }
+        }
+    }
+
     // --- Beat Record --------------------------------------------------------------------------
     // A "custom arpeggio": instead of cycling through chord tones, a held key replays the recorded
     // press/release rhythm - including how long each hit was actually held, not just its onset -
@@ -830,11 +879,24 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
     }
 
+    private setMetronomeSoundEnabled(enabled: boolean) {
+        this.setState({metronomeSoundEnabled: enabled});
+    }
+
+    private setBeatsPerBar(beats: number) {
+        this.metronomeBeatIndex = 0;
+        this.setState({beatsPerBar: beats});
+    }
+
     private startMetronome() {
         this.stopMetronome();
+        this.metronomeBeatIndex = 0;
         this.setState({metronomeFlash: true});
+        this.playMetronomeClick();
         this.metronomeHandle = setInterval(() => {
+            this.metronomeBeatIndex = (this.metronomeBeatIndex + 1) % Math.max(1, this.state.beatsPerBar);
             this.setState((s) => ({metronomeFlash: !s.metronomeFlash}));
+            this.playMetronomeClick();
         }, this.beatMs());
     }
 
@@ -844,6 +906,15 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.metronomeHandle = undefined;
         }
         this.setState({metronomeFlash: false});
+    }
+
+    // Purely local (Web Audio) - deliberately calls the synth directly rather than going through
+    // sendMidi/playNote, so this never reaches the coil regardless of preview mode or connection
+    // state, matching a click track that's only ever meant to be heard, not played by the coil.
+    private playMetronomeClick() {
+        if (this.state.metronomeSoundEnabled) {
+            this.synth.click(this.metronomeBeatIndex === 0);
+        }
     }
 
     // --- Loop station --------------------------------------------------------------------------
@@ -1150,6 +1221,25 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                         onChange={(ev) => this.setMetronomeEnabled(ev.target.checked)}
                     />
                 </div>
+                <div className={'tt-piano-transpose'}>
+                    <Form.Select
+                        size={'sm'}
+                        style={{width: '5.5em'}}
+                        title={'Time signature - which beat in the bar the metronome accents.'}
+                        value={this.state.beatsPerBar}
+                        onChange={(ev) => this.setBeatsPerBar(Number(ev.target.value))}
+                    >
+                        {TIME_SIGNATURES.map((sig) => <option key={sig.label} value={sig.beats}>{sig.label}</option>)}
+                    </Form.Select>
+                    <Form.Check
+                        type={'checkbox'}
+                        id={'piano-metronome-sound'}
+                        label={'Metronome sound'}
+                        title={'Audible click - local only, never sent to the coil.'}
+                        checked={this.state.metronomeSoundEnabled}
+                        onChange={(ev) => this.setMetronomeSoundEnabled(ev.target.checked)}
+                    />
+                </div>
             </div>
             <div className={'tt-piano-control-group'}>
                 <Form.Check
@@ -1309,13 +1399,14 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                                 'tt-piano-white-key' + (this.state.pressedBaseNotes.has(w.note) ? ' active' : '')
                             }
                             onMouseDown={(ev) => {
-                                this.altGrHeld = this.isAltGr(ev);
+                                this.setAltGrHeld(this.isAltGr(ev));
                                 this.press(w.note);
                             }}
                             onMouseUp={() => this.release(w.note)}
                             onMouseLeave={() => this.release(w.note)}
                         >
                             <span className={'tt-piano-key-label'}>{displayKey(w.key, this.state.layout)}</span>
+                            <span className={'tt-piano-key-note'}>{noteName(clampNote(w.note + this.state.transpose))}</span>
                         </div>
                         {black && <div
                             className={
@@ -1324,7 +1415,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                             }
                             onMouseDown={(ev) => {
                                 ev.stopPropagation();
-                                this.altGrHeld = this.isAltGr(ev);
+                                this.setAltGrHeld(this.isAltGr(ev));
                                 this.press(black.note);
                             }}
                             onMouseUp={(ev) => {
@@ -1334,6 +1425,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                             onMouseLeave={() => this.release(black.note)}
                         >
                             <span className={'tt-piano-key-label'}>{displayKey(black.key, this.state.layout)}</span>
+                            <span className={'tt-piano-key-note'}>{noteName(clampNote(black.note + this.state.transpose))}</span>
                         </div>}
                     </div>;
                 })}

@@ -75,6 +75,24 @@ export class CoilSynth {
         }
     }
 
+    // A short, plain percussive tick for the metronome - deliberately bypasses the coil-buzz voice
+    // path (noteBus/distortion) so it reads as a clean click distinct from the notes themselves,
+    // and is never touched by anything that forwards to the coil since it's a one-shot local sound.
+    public click(accent: boolean) {
+        this.ensureContext();
+        const now = this.audioContext.currentTime;
+        const osc = this.audioContext.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = accent ? 1600 : 1000;
+        const gain = this.audioContext.createGain();
+        gain.gain.setValueAtTime(accent ? 0.5 : 0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.connect(gain);
+        gain.connect(this.audioContext.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+    }
+
     private ensureContext() {
         if (this.audioContext) {
             return;
