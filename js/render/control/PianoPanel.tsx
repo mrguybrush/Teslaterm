@@ -397,7 +397,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     }
 
     private buildKeyMap(): Map<string, number> {
-        if (this.state.arpeggioEnabled && this.state.absoluteChordKeys) {
+        if (this.state.absoluteChordKeys) {
             // A-G aren't affected by the DE/EN Z<->Y swap, so no layout handling is needed here.
             return new Map(Object.entries(NOTE_LETTER_TO_MIDI));
         }
@@ -463,7 +463,9 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.tapBeat(true);
         }
         const note = clampNote(baseNote + this.state.transpose);
-        if (this.state.arpeggioEnabled) {
+        // Absolute chord keys always play a chord, whether or not the general Arpeggio checkbox is
+        // also on - the letter keys have no meaning as single notes in this mode.
+        if (this.state.arpeggioEnabled || this.state.absoluteChordKeys) {
             this.soundModeFor.set(baseNote, 'arpeggio');
             this.startArpeggio(baseNote, note);
             return;
@@ -676,12 +678,6 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.setState({recordingBeat: false});
             return;
         }
-        const recordEndMs = performance.now() - this.beatRecordStartTime;
-        // A key still held when recording was stopped never got its release captured - close it
-        // off at the moment recording ended instead of leaving it "on" forever during playback.
-        if (this.beatRecordTaps.length > 0 && this.beatRecordTaps[this.beatRecordTaps.length - 1].on) {
-            this.beatRecordTaps.push({t: recordEndMs, on: false});
-        }
         this.beatRecordStartTime = undefined;
         if (!this.beatRecordTaps.some((e) => e.on)) {
             // Nothing meaningful was tapped - keep whatever pattern was already recorded, if any.
@@ -691,11 +687,15 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         // The pattern starts at the first actual press, not at whenever the Record button was
         // clicked, so playback begins immediately when the key is pressed rather than after a
-        // silent lead-in. The recorded window is then rescaled onto a whole number of beats (at
-        // the tempo used while recording) rather than squeezed into exactly one - a tapped-in
-        // rhythm almost never spans exactly one beat, and forcing it to would bunch fast taps
-        // closely enough that their attack/release ramps overlap into a continuous buzz. Storing
-        // the cycle length in beats (not ms) keeps the pattern sensible if the tempo changes later.
+        // silent lead-in. If the last note tapped was still held when recording stopped, it's left
+        // unreleased here too (no synthetic note-off inserted) - it just keeps sounding right up
+        // to and through the pattern wrapping back to its start, instead of being muted at
+        // whatever arbitrary instant the Stop button happened to be clicked. The recorded window
+        // is then rescaled onto a whole number of beats (at the tempo used while recording) rather
+        // than squeezed into exactly one - a tapped-in rhythm almost never spans exactly one beat,
+        // and forcing it to would bunch fast taps closely enough that their attack/release ramps
+        // overlap into a continuous buzz. Storing the cycle length in beats (not ms) keeps the
+        // pattern sensible if the tempo changes later.
         const firstOnMs = this.beatRecordTaps.find((e) => e.on).t;
         const shifted = this.beatRecordTaps
             .filter((e) => e.t >= firstOnMs)
@@ -1179,7 +1179,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     type={'checkbox'}
                     id={'piano-absolute-chord-keys'}
                     label={'Absolute chord keys'}
-                    title={'With Arpeggio on: A-G play the same-named chord directly (key C plays a C arpeggio) instead of following the normal keyboard layout.'}
+                    title={'A-G play the same-named chord directly (key C plays a C chord) instead of following the normal keyboard layout. Hold AltGr for a minor chord instead of major.'}
                     checked={this.state.absoluteChordKeys}
                     onChange={(ev) => this.setState({absoluteChordKeys: ev.target.checked})}
                 />
