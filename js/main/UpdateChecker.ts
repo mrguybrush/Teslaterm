@@ -10,6 +10,9 @@ import {processIPC} from "./ipc/IPCProvider";
 // under exactly this name and attaches it to the GitHub release created for each pushed vX.Y.Z tag.
 const REPO = "mrguybrush/Teslaterm";
 const WINDOWS_ASSET_NAME = "teslaterm-windows.zip";
+// If cmd.exe somehow never reports back after launching the helper, quit anyway rather than
+// leaving the app sitting there forever.
+const HELPER_LAUNCH_TIMEOUT_MS = 10000;
 
 interface GithubReleaseAsset {
     name: string;
@@ -131,54 +134,59 @@ function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
     return false;
 }
 
-// Builds (but doesn't write to disk) a PowerShell script that:
-//   1. waits for this process to actually exit (its files are locked while running) via
-//      Wait-Process, which operates on the OS process handle rather than repeatedly re-looking up
-//      a PID number - unlike a poll loop that re-queries "is PID X still running" from scratch each
-//      time, this can't be fooled by Windows recycling the freed PID onto some unrelated process in
-//      between checks, and it has a built-in -Timeout so it can never wait forever,
-//   2. extracts the downloaded zip using Windows' own bundled tar.exe (bsdtar, which auto-detects
-//      zip format) rather than a JS unzip library - a 100+MB archive containing one large binary
-//      blob (app.asar) is exactly the kind of thing a pure-JS decompressor can get subtly wrong,
-//      and doing it from inside the still-running app added memory pressure for no benefit,
-//   3. robocopies the extracted build over the current install directory (retrying a few times in
-//      case a lingering handle needs a moment to let go - see /R and /W) - it only adds/overwrites
-//      files that exist in the new build, so user data alongside the exe (tt-ui-config.json,
-//      midis/, flight recordings, ...) is never touched since it isn't part of the release zip,
-//   4. relaunches the exe and cleans up the temp download - but only if robocopy actually reported
-//      success (exit code < 8); otherwise the old install is left alone instead of launching
-//      something half-updated, and update-error.log records what went wrong.
+// The PowerShell script that does the actual work once this app has exited:
+//   1. waits for this process to exit (its files are locked while running) via Wait-Process, which
+//      works off the OS process handle instead of repeatedly re-querying a PID number - so it can't
+//      be fooled by Windows recycling that PID onto something else, and its -Timeout means it can
+//      never wait forever,
+//   2. extracts the zip with Windows' own bundled tar.exe (bsdtar, which auto-detects zip format)
+//      rather than a JS unzip library - a 100+MB archive with one huge binary blob (app.asar) is
+//      exactly what a pure-JS decompressor tends to get subtly wrong,
+//   3. robocopies the extracted build over the install directory (/R and /W retry a file that's
+//      briefly still locked). It only adds/overwrites what's in the new build, so user data living
+//      next to the exe (tt-ui-config.json, midis/, flight recordings) is untouched - none of it is
+//      in the release zip,
+//   4. relaunches the app. Note -WorkingDirectory: Teslaterm resolves tt-ui-config.json and midis/
+//      relative to the *current directory*, so launching it with anything else as the cwd would
+//      make it silently look for (and create) config in the wrong place.
 //
-// This is executed via `powershell -EncodedCommand`, deliberately *not* written to a .ps1 file and
-// run with -File: PowerShell's execution policy (and, on managed machines, Group Policy on top of
-// it) specifically gates running script *files* - -Command/-EncodedCommand input isn't subject to
-// the same restriction, so this can't get silently blocked by a policy that would otherwise make
-// the whole update quietly do nothing after the app closes. It also has no pipes anywhere (unlike
-// the old "tasklist | find" batch loop), which is what caused the console-flashing before this -
-// batch implements "cmd1 | cmd2" by spawning a *second* cmd.exe per pipe, and those don't reliably
-// inherit a hidden console even when the top-level process has windowsHide set.
+// Every step is logged unconditionally. On success the whole temp dir (log included) is removed; on
+// failure it's deliberately left behind so there's something to diagnose from, and the app is
+// relaunched anyway so a failed update never leaves the user staring at a closed app.
 function buildUpdateScript(zipPath: string, stagingDir: string, installDir: string, exeName: string): string {
     const tempDir = path.dirname(zipPath);
-    const logPath = path.join(tempDir, "update-error.log");
+    const logPath = path.join(tempDir, "update.log");
     const exePath = path.join(installDir, exeName);
+    const relaunch = `Start-Process -FilePath "${exePath}" -WorkingDirectory "${installDir}"`;
     return [
-        "$ErrorActionPreference = 'SilentlyContinue'",
+        `$log = "${logPath}"`,
+        `function Note($m) { "$(Get-Date -Format o)  $m" | Out-File -FilePath $log -Append }`,
+        `Note "helper started (pid $PID), waiting for Teslaterm pid ${process.pid}"`,
         `Wait-Process -Id ${process.pid} -Timeout 30 -ErrorAction SilentlyContinue`,
-        // Extra grace period for the OS to finish releasing file handles/memory maps after the
-        // process has actually exited.
+        // Extra grace period for the OS to release file handles/memory maps after the process is
+        // gone from the task list.
         "Start-Sleep -Seconds 2",
+        `Note "extracting"`,
         `New-Item -ItemType Directory -Force -Path "${stagingDir}" | Out-Null`,
         `& tar -xf "${zipPath}" -C "${stagingDir}"`,
         "if ($LASTEXITCODE -ne 0) {",
-        `    "Extraction failed with tar exit code $LASTEXITCODE." | Out-File -FilePath "${logPath}"`,
+        `    Note "tar FAILED with exit code $LASTEXITCODE - relaunching old version"`,
+        `    ${relaunch}`,
         "    exit 1",
         "}",
+        `Note "copying into ${installDir}"`,
         `& robocopy "${stagingDir}" "${installDir}" /E /R:5 /W:2 /NFL /NDL /NJH /NJS | Out-Null`,
-        "if ($LASTEXITCODE -ge 8) {",
-        `    "Update copy failed, robocopy exit code $LASTEXITCODE." | Out-File -FilePath "${logPath}"`,
+        "$rc = $LASTEXITCODE",
+        "if ($rc -ge 8) {",
+        `    Note "robocopy FAILED with exit code $rc - relaunching anyway"`,
+        `    ${relaunch}`,
         "    exit 1",
         "}",
-        `Start-Process -FilePath "${exePath}"`,
+        `Note "copy ok (robocopy code $rc), relaunching"`,
+        relaunch,
+        `Note "done"`,
+        // Only reached when everything worked, so the temp dir (and its log) can go.
+        `Set-Location "${installDir}"`,
         `Remove-Item -Path "${tempDir}" -Recurse -Force -ErrorAction SilentlyContinue`,
     ].join("\r\n");
 }
@@ -234,25 +242,43 @@ export async function downloadAndInstallUpdate() {
         const stagingDir = path.join(tempDir, "extracted");
         const installDir = path.dirname(app.getPath("exe"));
         const exeName = path.basename(app.getPath("exe"));
-        const script = buildUpdateScript(zipPath, stagingDir, installDir, exeName);
-        // -EncodedCommand wants UTF-16LE, base64-encoded.
-        const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+        const scriptPath = path.join(tempDir, "apply-update.ps1");
+        fs.writeFileSync(scriptPath, buildUpdateScript(zipPath, stagingDir, installDir, exeName), "utf-8");
+
+        // The script lives in a file (keeps the command line short regardless of how long the
+        // install/temp paths are), but is invoked by *reading* it rather than by -File: PowerShell's
+        // execution policy, and Group Policy on managed machines, gate running script files, and
+        // getting silently blocked there would make the whole update do nothing.
+        const bootstrap = `Invoke-Expression (Get-Content -Raw -LiteralPath '${scriptPath}')`;
+        const encodedCommand = Buffer.from(bootstrap, "utf16le").toString("base64");
 
         pendingRelease = undefined;
+        // Launched through `cmd /c start` rather than spawning PowerShell directly. Verified by
+        // experiment on Windows: a directly-spawned child does NOT survive this app exiting, even
+        // with detached: true and unref() - it gets torn down along with the parent, which is
+        // exactly why the update previously appeared to do nothing at all after the app closed.
+        // Going through `start` hands the helper off as an independent process that keeps running.
         const child = spawn(
-            "powershell.exe",
-            ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encodedCommand],
-            {cwd: tempDir, detached: true, stdio: "ignore", windowsHide: true},
+            "cmd.exe",
+            ["/c", "start", "", "/b", "powershell.exe",
+                "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encodedCommand],
+            {cwd: installDir, detached: true, stdio: "ignore", windowsHide: true},
         );
-        // Only quit once the helper process has actually started - previously the app quit
-        // unconditionally right after calling spawn(), so if PowerShell failed to launch at all
-        // (blocked by security software, missing from PATH, ...) the app would just close with the
-        // update silently never happening and nothing left to explain why.
-        child.once("spawn", () => {
-            child.unref();
-            app.quit();
-        });
+        // cmd.exe exits as soon as `start` has handed off the helper, so waiting for its exit -
+        // rather than quitting the instant spawn() returns - guarantees the helper is actually
+        // running before this process (cmd's parent) goes away.
+        let quit = false;
+        const quitOnce = () => {
+            if (!quit) {
+                quit = true;
+                child.unref();
+                app.quit();
+            }
+        };
+        child.once("close", quitOnce);
+        setTimeout(quitOnce, HELPER_LAUNCH_TIMEOUT_MS);
         child.once("error", (err) => {
+            quit = true;
             reportStatus(`Update failed to start: ${err.message || err}`, true);
         });
     } catch (e) {
