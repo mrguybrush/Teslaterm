@@ -118,61 +118,52 @@ function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
     return false;
 }
 
-// Writes a small batch script that:
-//   1. waits for this process to actually exit (its files are locked while running),
+// Writes a small PowerShell script (not a .bat) that:
+//   1. waits for this process to actually exit (its files are locked while running) via
+//      Wait-Process, which operates on the OS process handle rather than repeatedly re-looking up
+//      a PID number - unlike a poll loop that re-queries "is PID X still running" from scratch each
+//      time, this can't be fooled by Windows recycling the freed PID onto some unrelated process in
+//      between checks, and it has a built-in -Timeout so it can never wait forever,
 //   2. extracts the downloaded zip using Windows' own bundled tar.exe (bsdtar, which auto-detects
 //      zip format) rather than a JS unzip library - a 100+MB archive containing one large binary
 //      blob (app.asar) is exactly the kind of thing a pure-JS decompressor can get subtly wrong,
-//      and doing it from inside the still-running app added memory pressure for no benefit. Native
-//      tar is what actually ships and gets tested on every Windows 10/11 install,
+//      and doing it from inside the still-running app added memory pressure for no benefit,
 //   3. robocopies the extracted build over the current install directory (retrying a few times in
-//      case a lingering helper process/file handle needs a moment to let go - see /R and /W) - it
-//      only adds/overwrites files that exist in the new build, so user data alongside the exe
-//      (tt-ui-config.json, midis/, flight recordings, ...) is never touched since it isn't part of
-//      the release zip,
+//      case a lingering handle needs a moment to let go - see /R and /W) - it only adds/overwrites
+//      files that exist in the new build, so user data alongside the exe (tt-ui-config.json,
+//      midis/, flight recordings, ...) is never touched since it isn't part of the release zip,
 //   4. relaunches the exe - but only if robocopy actually reported success (exit code < 8);
 //      otherwise the old install is left alone instead of launching something half-updated.
+//
+// PowerShell instead of a batch file specifically to get rid of the visible console flashing:
+// batch implements "cmd1 | cmd2" pipes by spawning a *second* cmd.exe to run each side of the
+// pipe, and those don't reliably inherit a hidden console even when the top-level process was
+// spawned with windowsHide - which is exactly what kept happening with the old
+// "tasklist | find" wait loop. This script has no pipes at all.
 function writeUpdateScript(
     scriptPath: string, zipPath: string, stagingDir: string, installDir: string, exeName: string,
 ): void {
     const logPath = path.join(path.dirname(scriptPath), "update-error.log");
+    const exePath = path.join(installDir, exeName);
     const script = [
-        "@echo off",
-        "title Teslaterm Update",
-        `set PID=${process.pid}`,
-        `set EXENAME=${exeName}`,
-        "set WAITCOUNT=0",
-        ":waitloop",
-        // Filtering on IMAGENAME as well as PID matters: Windows recycles a freed PID almost
-        // immediately, and this very script spawns a fresh process (tasklist/find/timeout) on
-        // every single loop iteration - it's entirely possible for one of those short-lived
-        // helpers to get handed the old Teslaterm's just-freed PID, which would make a PID-only
-        // check see "still running" forever and loop indefinitely.
-        `tasklist /FI "PID eq %PID%" /FI "IMAGENAME eq %EXENAME%" 2>NUL | find "%PID%" >NUL`,
-        "if not errorlevel 1 (",
-        "  set /a WAITCOUNT+=1",
-        "  if %WAITCOUNT% GEQ 30 goto waitdone",
-        "  timeout /t 1 /nobreak >NUL",
-        "  goto waitloop",
-        ")",
-        ":waitdone",
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        `Wait-Process -Id ${process.pid} -Timeout 30 -ErrorAction SilentlyContinue`,
         // Extra grace period for the OS to finish releasing file handles/memory maps after the
-        // process has already disappeared from the task list.
-        "timeout /t 2 /nobreak >NUL",
-        `mkdir "${stagingDir}" 2>NUL`,
-        `tar -xf "${zipPath}" -C "${stagingDir}"`,
-        "if errorlevel 1 (",
-        `  echo Extraction failed with tar exit code %errorlevel%. > "${logPath}"`,
-        "  goto end",
-        ")",
-        `robocopy "${stagingDir}" "${installDir}" /E /R:5 /W:2 /NFL /NDL /NJH /NJS >NUL`,
-        "if errorlevel 8 (",
-        `  echo Update copy failed, robocopy exit code %errorlevel%. > "${logPath}"`,
-        ") else (",
-        `  start "" "${path.join(installDir, exeName)}"`,
-        ")",
-        ":end",
-        `del "%~f0"`,
+        // process has actually exited.
+        "Start-Sleep -Seconds 2",
+        `New-Item -ItemType Directory -Force -Path "${stagingDir}" | Out-Null`,
+        `& tar -xf "${zipPath}" -C "${stagingDir}"`,
+        "if ($LASTEXITCODE -ne 0) {",
+        `    "Extraction failed with tar exit code $LASTEXITCODE." | Out-File -FilePath "${logPath}"`,
+        "    exit 1",
+        "}",
+        `& robocopy "${stagingDir}" "${installDir}" /E /R:5 /W:2 /NFL /NDL /NJH /NJS | Out-Null`,
+        "if ($LASTEXITCODE -ge 8) {",
+        `    "Update copy failed, robocopy exit code $LASTEXITCODE." | Out-File -FilePath "${logPath}"`,
+        "    exit 1",
+        "}",
+        `Start-Process -FilePath "${exePath}"`,
+        "Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue",
     ].join("\r\n");
     fs.writeFileSync(scriptPath, script, "utf-8");
 }
@@ -225,14 +216,17 @@ export async function downloadAndInstallUpdate() {
         const stagingDir = path.join(tempDir, "extracted");
         const installDir = path.dirname(app.getPath("exe"));
         const exeName = path.basename(app.getPath("exe"));
-        const scriptPath = path.join(tempDir, "apply-update.bat");
+        const scriptPath = path.join(tempDir, "apply-update.ps1");
         writeUpdateScript(scriptPath, zipPath, stagingDir, installDir, exeName);
 
         pendingRelease = undefined;
-        // windowsHide is what actually matters here - without it, spawning cmd.exe still pops up a
-        // visible console window on Windows regardless of detached/stdio: "ignore".
+        // -WindowStyle Hidden and windowsHide are somewhat redundant with each other, but cheap
+        // insurance - between the two of them, and this script having no pipes for cmd.exe to
+        // spawn extra hosts for, nothing here should ever flash a console window.
         spawn(
-            "cmd.exe", ["/c", scriptPath], {cwd: tempDir, detached: true, stdio: "ignore", windowsHide: true},
+            "powershell.exe",
+            ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+            {cwd: tempDir, detached: true, stdio: "ignore", windowsHide: true},
         ).unref();
         app.quit();
     } catch (e) {

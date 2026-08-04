@@ -71,6 +71,26 @@ jobs:
     env:
       release: ${{ github.event_name == 'create' && startsWith(github.ref, 'refs/tags/v')}}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      # This repo doesn't merge via PRs, so GitHub's own generate_release_notes (which is PR-based)
+      # produced release bodies that were essentially just the "Full Changelog" compare link with
+      # nothing above it - not useful. Building the changelog directly from git log between the
+      # previous tag and this one instead gives an actual list of what changed.
+      - name: Generate changelog
+        if: env.release == 'true'
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || echo "")
+          echo "## Changes" > changelog.md
+          echo "" >> changelog.md
+          if [ -n "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s" "$PREV_TAG..$GITHUB_REF_NAME" >> changelog.md
+          else
+            git log --pretty=format:"- %s" "$GITHUB_REF_NAME" >> changelog.md
+          fi
       - name: Download teslaterm-windows
         uses: actions/download-artifact@v4
         with:
@@ -91,7 +111,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: env.release == 'true'
         with:
-          generate_release_notes: true
+          body_path: changelog.md
           files: |
             teslaterm-linux.zip
             teslaterm-windows.zip

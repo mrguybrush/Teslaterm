@@ -230,6 +230,37 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
         </Modal>;
     }
 
+    // The changelog is otherwise plain text - this just makes any URL that happens to appear in it
+    // (e.g. a stray "Full Changelog" compare link) clickable instead of dead text in a <pre>.
+    private renderWithLinks(text: string): React.ReactNode[] {
+        const urlPattern = /https?:\/\/\S+/g;
+        const parts: React.ReactNode[] = [];
+        let lastIndex = 0;
+        let match: RegExpExecArray;
+        let key = 0;
+        while ((match = urlPattern.exec(text)) !== null) {
+            if (match.index > lastIndex) {
+                parts.push(text.substring(lastIndex, match.index));
+            }
+            const url = match[0];
+            parts.push(<a
+                key={key++}
+                href={url}
+                onClick={(ev) => {
+                    ev.preventDefault();
+                    shell.openExternal(url);
+                }}
+            >
+                {url}
+            </a>);
+            lastIndex = match.index + url.length;
+        }
+        if (lastIndex < text.length) {
+            parts.push(text.substring(lastIndex));
+        }
+        return parts;
+    }
+
     private makeAppSettings() {
         const otherMode = this.props.config.darkMode ? 'light' : 'dark';
         return <div className={'tt-app-settings'}>
@@ -302,7 +333,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 </span>}
             </div>
             {this.state.updateAvailable && this.state.updateReleaseNotes && <pre className={'tt-update-release-notes'}>
-                {this.state.updateReleaseNotes}
+                {this.renderWithLinks(this.state.updateReleaseNotes)}
             </pre>}
             {this.state.updateAvailable && <Button
                 variant={'success'}
