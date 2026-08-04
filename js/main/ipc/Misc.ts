@@ -120,6 +120,9 @@ export class CommonMiscIPC {
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setScopeTraceColors, (scopeTraceColors) => {
             setUIConfig({scopeTraceColors});
         });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setScopeLineWidth, (scopeLineWidth) => {
+            setUIConfig({scopeLineWidth});
+        });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setWindowSizeToCurrent, () => {
             const bounds = mainWindow?.getBounds();
             if (bounds) {

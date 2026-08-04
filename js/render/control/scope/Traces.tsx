@@ -41,7 +41,7 @@ export class Traces extends CanvasComponent<TraceProps, {}> {
         config: TraceConfig, data: number[], ctx: CanvasRenderingContext2D, width: number, height: number
     ) {
         ctx.strokeStyle = config.wavecolor;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = scopeColors.lineWidth;
         ctx.beginPath();
         const dataOffset = width - (data.length - 1);
         for (let x = width; x >= 0 && x >= dataOffset; --x) {

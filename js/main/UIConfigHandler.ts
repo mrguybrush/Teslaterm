@@ -113,6 +113,9 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
     if (object.scopeTraceColors === undefined) {
         object.scopeTraceColors = ['#ff3b3b', '#ffb703', '#00d68f', '#0d7fc4', '#a64dd6'];
     }
+    if (object.scopeLineWidth === undefined) {
+        object.scopeLineWidth = 2;
+    }
     if (object.centralTelemetry === undefined) {
         object.centralTelemetry = [];
     }

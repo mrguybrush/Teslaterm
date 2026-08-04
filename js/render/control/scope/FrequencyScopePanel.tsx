@@ -49,7 +49,7 @@ class FrequencyWaveCanvas extends CanvasComponent<FrequencyWaveProps, {}> {
         ctx.stroke();
 
         ctx.strokeStyle = this.props.color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = scopeColors.lineWidth;
         ctx.beginPath();
         for (let x = 0; x <= width; x++) {
             const angle = (x / width) * cycles * 2 * Math.PI;

@@ -56,6 +56,7 @@ export class App extends TTComponent<{}, TopLevelState> {
                 setScopeColors({
                     background: cfg.scopeBackgroundColor,
                     gridLine: cfg.scopeGridColor,
+                    lineWidth: cfg.scopeLineWidth,
                     traceColors: cfg.scopeTraceColors,
                 });
             },
@@ -132,6 +133,7 @@ export class App extends TTComponent<{}, TopLevelState> {
                     IPC_CONSTANTS_TO_MAIN.setScopeBackgroundColor, newVal,
                 )}
                 setScopeGridColor={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setScopeGridColor, newVal)}
+                setScopeLineWidth={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setScopeLineWidth, newVal)}
                 setScopeTraceColors={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setScopeTraceColors, newVal)}
                 openFlightRecording={(data) => this.setState({
                     flightEvents: data,

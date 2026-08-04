@@ -13,7 +13,12 @@ import {
 } from "../../common/SingleConnectionOptions";
 import {SyncedUIConfig} from "../../common/UIConfig";
 import {processIPC} from "../ipc/IPCProvider";
-import {DEFAULT_SCOPE_BACKGROUND, DEFAULT_SCOPE_GRID_LINE, DEFAULT_TRACE_COLORS} from "../control/scope/ScopeColors";
+import {
+    DEFAULT_SCOPE_BACKGROUND,
+    DEFAULT_SCOPE_GRID_LINE,
+    DEFAULT_SCOPE_LINE_WIDTH,
+    DEFAULT_TRACE_COLORS,
+} from "../control/scope/ScopeColors";
 import {ScreenWithDrop} from "../ScreenWithDrop";
 import {ConnectForm} from "./ConnectForm";
 import {ConnectionPresets} from "./ConnectionPresets";
@@ -96,6 +101,7 @@ export interface ConnectScreenProps {
     setVoltagePhases: (newVal: number) => void;
     setScopeBackgroundColor: (newVal: string) => void;
     setScopeGridColor: (newVal: string) => void;
+    setScopeLineWidth: (newVal: number) => void;
     setScopeTraceColors: (newVal: string[]) => void;
     openFlightRecording: (data: FRDisplayData) => any;
     openFlightSessions: () => any;
@@ -369,6 +375,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             this.props.setScopeBackgroundColor(DEFAULT_SCOPE_BACKGROUND);
             this.props.setScopeGridColor(DEFAULT_SCOPE_GRID_LINE);
             this.props.setScopeTraceColors(DEFAULT_TRACE_COLORS);
+            this.props.setScopeLineWidth(DEFAULT_SCOPE_LINE_WIDTH);
         };
         return <div>
             <Form.Label>Scope colors</Form.Label>
@@ -399,6 +406,19 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                         />
                     </div>
                 ))}
+                <div style={{textAlign: 'center'}}>
+                    <div>Line width</div>
+                    <Form.Control
+                        type={'number'}
+                        min={1}
+                        max={6}
+                        style={{width: '5em'}}
+                        value={this.props.config.scopeLineWidth}
+                        onChange={(ev) => this.props.setScopeLineWidth(
+                            Math.max(1, Math.min(6, Number(ev.target.value))),
+                        )}
+                    />
+                </div>
             </div>
             <Button variant={'secondary'} size={'sm'} onClick={resetToDefaults}>
                 Reset scope colors to defaults

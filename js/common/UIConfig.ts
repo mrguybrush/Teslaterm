@@ -31,6 +31,7 @@ export interface SyncedUIConfig {
     scopeBackgroundColor: string;
     scopeGridColor: string;
     scopeTraceColors: string[];
+    scopeLineWidth: number;
 
     lastConnectOptions: FullConnectionOptions;
     advancedOptions: AdvancedOptions;

@@ -86,6 +86,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
     setDarkMode: makeKey<boolean>('setDarkMode'),
     setScopeBackgroundColor: makeKey<string>('setScopeBackgroundColor'),
     setScopeGridColor: makeKey<string>('setScopeGridColor'),
+    setScopeLineWidth: makeKey<number>('setScopeLineWidth'),
     setScopeTraceColors: makeKey<string[]>('setScopeTraceColors'),
     setSliderSize: makeKey<number>('setSliderSize'),
     setVoltagePhases: makeKey<number>('setVoltagePhases'),

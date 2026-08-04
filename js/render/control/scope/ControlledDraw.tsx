@@ -18,8 +18,7 @@ export class ControlledDraw extends CanvasComponent<ControlledDrawProps, {}> {
         for (const command of this.props.commandList) {
             if (command.type === 'line') {
                 const data = command.data;
-                // TODO why did 1 work well on the old version but looks really thin now?
-                ctx.lineWidth = 2;
+                ctx.lineWidth = scopeColors.lineWidth;
                 ctx.strokeStyle = scopeColors.traceColors[data.traceColorIndex];
                 ctx.beginPath();
                 ctx.moveTo(ControlledDraw.transformX(data.x1, width), ControlledDraw.transformY(data.y1, height));
