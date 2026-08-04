@@ -192,7 +192,7 @@ interface ArpeggioRun {
 // release time instead of re-checking the live checkboxes, so toggling a mode mid-hold (e.g.
 // turning Slide time off while a slid note is still down) can't leave that note stuck on: release
 // always tears down whatever actually started it, not whatever the checkboxes currently say.
-type SoundMode = 'normal' | 'slide' | 'arpeggio' | 'beat';
+type SoundMode = 'normal' | 'slide' | 'arpeggio' | 'beat' | 'chord';
 
 interface BeatRun {
     note: number;
@@ -241,6 +241,8 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
     private readonly soundingNoteFor = new Map<number, number>();
     private readonly arpeggioRuns = new Map<number, ArpeggioRun>();
     private readonly beatRuns = new Map<number, BeatRun>();
+    // Absolute chord keys with Arpeggio off: all three tones held together instead of cycled.
+    private readonly chordNotesFor = new Map<number, number[]>();
     // What actually made each currently-held key sound, recorded at press time - see SoundMode.
     private readonly soundModeFor = new Map<number, SoundMode>();
     private beatRecordStartTime?: number;
@@ -464,8 +466,19 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         const note = clampNote(baseNote + this.state.transpose);
         // Absolute chord keys always play a chord, whether or not the general Arpeggio checkbox is
-        // also on - the letter keys have no meaning as single notes in this mode.
-        if (this.state.arpeggioEnabled || this.state.absoluteChordKeys) {
+        // also on - the letter keys have no meaning as single notes in this mode. Arpeggio then
+        // only decides HOW the chord sounds: cycled one tone at a time, or all held at once.
+        if (this.state.absoluteChordKeys) {
+            if (this.state.arpeggioEnabled) {
+                this.soundModeFor.set(baseNote, 'arpeggio');
+                this.startArpeggio(baseNote, note);
+            } else {
+                this.soundModeFor.set(baseNote, 'chord');
+                this.startChord(baseNote, note);
+            }
+            return;
+        }
+        if (this.state.arpeggioEnabled) {
             this.soundModeFor.set(baseNote, 'arpeggio');
             this.startArpeggio(baseNote, note);
             return;
@@ -518,6 +531,10 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
         }
         if (mode === 'beat') {
             this.stopBeatRun(baseNote);
+            return;
+        }
+        if (mode === 'chord') {
+            this.stopChord(baseNote);
             return;
         }
         if (mode === 'slide') {
@@ -609,6 +626,28 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
             this.stopNote(`arp-${baseNote}`, run.soundingNote);
         }
         this.arpeggioRuns.delete(baseNote);
+    }
+
+    // Absolute chord keys with Arpeggio off: a plain block chord, all tones held together for as
+    // long as the key is down, instead of cycled one at a time.
+    private startChord(baseNote: number, rootNote: number) {
+        const intervals = this.altGrHeld ? ARPEGGIO_INTERVALS_MINOR : ARPEGGIO_INTERVALS_MAJOR;
+        const notes = intervals.map((offset) => clampNote(rootNote + offset));
+        this.chordNotesFor.set(baseNote, notes);
+        for (const chordNote of notes) {
+            this.playNote(`chord-${baseNote}-${chordNote}`, chordNote);
+        }
+    }
+
+    private stopChord(baseNote: number) {
+        const notes = this.chordNotesFor.get(baseNote);
+        if (!notes) {
+            return;
+        }
+        this.chordNotesFor.delete(baseNote);
+        for (const chordNote of notes) {
+            this.stopNote(`chord-${baseNote}-${chordNote}`, chordNote);
+        }
     }
 
     // --- Beat Record --------------------------------------------------------------------------
@@ -1179,7 +1218,7 @@ export class PianoPanel extends TTComponent<PianoPanelProps, PianoPanelState> {
                     type={'checkbox'}
                     id={'piano-absolute-chord-keys'}
                     label={'Absolute chord keys'}
-                    title={'A-G play the same-named chord directly (key C plays a C chord) instead of following the normal keyboard layout. Hold AltGr for a minor chord instead of major.'}
+                    title={'A-G play the same-named chord directly (key C plays a C chord) instead of following the normal keyboard layout. Hold AltGr for minor instead of major. Played as a block chord, or cycled one tone at a time if Arpeggio is also on.'}
                     checked={this.state.absoluteChordKeys}
                     onChange={(ev) => this.setState({absoluteChordKeys: ev.target.checked})}
                 />
