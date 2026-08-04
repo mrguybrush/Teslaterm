@@ -59,7 +59,9 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     updateConnectionState: makeKey<[CoilID, ConnectionStatus]>('update-connection-state'),
     // Dedicated channel rather than the toast system, since it needs to be visible on the connect
     // screen (where the "Check for updates" button lives) and that screen has no toast display.
-    updateCheckStatus: makeKey<{ message: string, isError: boolean }>('update-check-status'),
+    // updateAvailable true is what makes the renderer show the separate "Download & install"
+    // button - checking and downloading are deliberately two explicit steps.
+    updateCheckStatus: makeKey<{ message: string, isError: boolean, updateAvailable: boolean }>('update-check-status'),
 };
 
 export function getToRenderIPCPerCoil(coil: CoilID) {

@@ -15,6 +15,7 @@ const WINDOWS_ASSET_NAME = "teslaterm-windows.zip";
 interface GithubReleaseAsset {
     name: string;
     browser_download_url: string;
+    size: number;
 }
 
 interface GithubRelease {
@@ -22,11 +23,16 @@ interface GithubRelease {
     assets: GithubReleaseAsset[];
 }
 
+// Set by checkForUpdates() once it finds something newer, consumed by downloadAndInstallUpdate() -
+// the user has to explicitly click a second "Download & install" button before anything is
+// actually downloaded, so the two calls can happen an arbitrary amount of time apart.
+let pendingRelease: GithubRelease | undefined;
+
 // The "Check for updates" button lives in the connect screen's Settings dialog, which is shown
 // before a coil is even connected and has no toast display mounted - so status goes out over its
 // own dedicated channel instead of the usual (coil-oriented) toast system.
-function reportStatus(message: string, isError: boolean = false) {
-    processIPC.send(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, {isError, message});
+function reportStatus(message: string, isError: boolean = false, updateAvailable: boolean = false) {
+    processIPC.send(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, {isError, message, updateAvailable});
 }
 
 // Both the GitHub API response and the asset download itself can come back as a redirect, so both
@@ -58,12 +64,16 @@ function httpGetJson<T>(url: string): Promise<T> {
     });
 }
 
-function httpDownload(url: string, destPath: string): Promise<void> {
+// Downloads to a temporary file first and only renames it into place once the byte count matches
+// what the server announced - a connection that drops early can otherwise still fire a "finish"
+// event with a silently truncated file, which is exactly the kind of corruption that leads to a
+// broken app.asar down the line.
+function httpDownload(url: string, destPath: string, expectedSize?: number): Promise<void> {
     return new Promise((resolve, reject) => {
         https.get(url, {headers: {"User-Agent": "Teslaterm-Updater"}}, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 res.resume();
-                httpDownload(res.headers.location, destPath).then(resolve, reject);
+                httpDownload(res.headers.location, destPath, expectedSize).then(resolve, reject);
                 return;
             }
             if (res.statusCode !== 200) {
@@ -71,10 +81,22 @@ function httpDownload(url: string, destPath: string): Promise<void> {
                 reject(new Error(`Download failed with status ${res.statusCode}`));
                 return;
             }
-            const file = fs.createWriteStream(destPath);
+            const partPath = destPath + ".part";
+            const file = fs.createWriteStream(partPath);
+            let received = 0;
+            res.on("data", (chunk) => received += chunk.length);
             res.pipe(file);
-            file.on("finish", () => file.close(() => resolve()));
+            file.on("finish", () => file.close(() => {
+                if (expectedSize !== undefined && received !== expectedSize) {
+                    fs.unlink(partPath, () => undefined);
+                    reject(new Error(`Download incomplete: got ${received} of ${expectedSize} bytes`));
+                    return;
+                }
+                fs.renameSync(partPath, destPath);
+                resolve();
+            }));
             file.on("error", reject);
+            res.on("error", reject);
         }).on("error", reject);
     });
 }
@@ -111,10 +133,20 @@ async function extractZipTo(zipPath: string, targetDir: string) {
 }
 
 // Writes a small batch script that waits for this process to actually exit (its files are locked
-// while running, so they can't be overwritten in place), then copies the newly extracted build
-// over the current install directory and relaunches it. xcopy only adds/overwrites files that
-// exist in the new build - user data living alongside the exe (tt-ui-config.json, the midis/
-// folder, flight recordings, ...) isn't part of the release zip, so it's never touched.
+// while running, so they can't be overwritten in place), then robocopies the newly extracted build
+// over the current install directory and relaunches it.
+//
+// robocopy (not xcopy) specifically because Windows can take a moment after a process disappears
+// from the task list to actually release its last file handles/memory-mapped views (app.asar in
+// particular, since Electron maps it) - xcopy has no retry logic and a single locked file mid-copy
+// can leave a mismatched mix of old and new files behind (a broken app.asar being the most visible
+// symptom: Electron refuses to start with an "Invalid package" error). robocopy's /R and /W make it
+// retry a locked file instead of limping on. It only adds/overwrites files that exist in the new
+// build - user data living alongside the exe (tt-ui-config.json, the midis/ folder, flight
+// recordings, ...) isn't part of the release zip, so it's never touched.
+//
+// The exe is only relaunched if robocopy actually reports success (exit code < 8); otherwise the
+// old install is left as-is rather than launching something that was only half-updated.
 function writeUpdateScript(scriptPath: string, stagingDir: string, installDir: string, exeName: string): void {
     const script = [
         "@echo off",
@@ -125,14 +157,22 @@ function writeUpdateScript(scriptPath: string, stagingDir: string, installDir: s
         "  timeout /t 1 /nobreak >NUL",
         "  goto waitloop",
         ")",
-        `xcopy /Y /E /I "${stagingDir}" "${installDir}" >NUL`,
-        `start "" "${path.join(installDir, exeName)}"`,
+        // Extra grace period for the OS to finish releasing file handles/memory maps after the
+        // process has already disappeared from the task list.
+        "timeout /t 2 /nobreak >NUL",
+        `robocopy "${stagingDir}" "${installDir}" /E /R:5 /W:2 /NFL /NDL /NJH /NJS >NUL`,
+        "if errorlevel 8 (",
+        `  echo Update copy failed, see robocopy exit code %errorlevel%. > "${path.join(path.dirname(scriptPath), "update-error.log")}"`,
+        ") else (",
+        `  start "" "${path.join(installDir, exeName)}"`,
+        ")",
         `del "%~f0"`,
     ].join("\r\n");
     fs.writeFileSync(scriptPath, script, "utf-8");
 }
 
 export async function checkForUpdates() {
+    pendingRelease = undefined;
     if (process.platform !== "win32") {
         reportStatus("Automatic updates are only supported on Windows builds for now.", true);
         return;
@@ -150,11 +190,25 @@ export async function checkForUpdates() {
             reportStatus(`Release ${release.tag_name} has no Windows build attached.`, true);
             return;
         }
+        pendingRelease = release;
+        reportStatus(`Update available: ${release.tag_name} (currently v${currentVersion}).`, false, true);
+    } catch (e) {
+        reportStatus(`Update check failed: ${e.message || e}`, true);
+    }
+}
 
+export async function downloadAndInstallUpdate() {
+    const release = pendingRelease;
+    if (!release) {
+        reportStatus("Check for updates first.", true);
+        return;
+    }
+    const asset = release.assets.find((a) => a.name === WINDOWS_ASSET_NAME);
+    try {
         reportStatus(`Downloading ${release.tag_name}...`);
         const tempDir = fs.mkdtempSync(path.join(app.getPath("temp"), "teslaterm-update-"));
         const zipPath = path.join(tempDir, WINDOWS_ASSET_NAME);
-        await httpDownload(asset.browser_download_url, zipPath);
+        await httpDownload(asset.browser_download_url, zipPath, asset.size);
 
         reportStatus("Installing update and restarting...");
         const stagingDir = path.join(tempDir, "extracted");
@@ -166,6 +220,7 @@ export async function checkForUpdates() {
         const scriptPath = path.join(tempDir, "apply-update.bat");
         writeUpdateScript(scriptPath, stagingDir, installDir, exeName);
 
+        pendingRelease = undefined;
         spawn("cmd.exe", ["/c", scriptPath], {cwd: tempDir, detached: true, stdio: "ignore"}).unref();
         app.quit();
     } catch (e) {

@@ -76,6 +76,7 @@ interface ConnectScreenState {
 
     updateCheckMessage?: string;
     updateCheckIsError: boolean;
+    updateAvailable: boolean;
 }
 
 export interface FRDisplayData {
@@ -115,6 +116,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             error: '',
             showingError: false,
             showingSettings: false,
+            updateAvailable: false,
             updateCheckIsError: false,
             windowSizeJustSaved: false,
         };
@@ -123,7 +125,11 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
     public componentDidMount() {
         super.componentDidMount();
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.updateCheckStatus, (status) => {
-            this.setState({updateCheckIsError: status.isError, updateCheckMessage: status.message});
+            this.setState({
+                updateAvailable: status.updateAvailable,
+                updateCheckIsError: status.isError,
+                updateCheckMessage: status.message,
+            });
         });
     }
 
@@ -275,12 +281,21 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 <Button
                     variant={'secondary'}
                     onClick={() => {
-                        this.setState({updateCheckIsError: false, updateCheckMessage: undefined});
+                        this.setState({updateAvailable: false, updateCheckIsError: false, updateCheckMessage: undefined});
                         processIPC.send(IPC_CONSTANTS_TO_MAIN.checkForUpdates, undefined);
                     }}
                 >
                     Check for updates
                 </Button>
+                {this.state.updateAvailable && <Button
+                    variant={'success'}
+                    onClick={() => {
+                        this.setState({updateAvailable: false});
+                        processIPC.send(IPC_CONSTANTS_TO_MAIN.downloadUpdate, undefined);
+                    }}
+                >
+                    Download &amp; install
+                </Button>}
                 {this.state.updateCheckMessage && <span
                     className={'tt-update-check-status'}
                     style={{color: this.state.updateCheckIsError ? 'var(--bs-danger)' : undefined}}

@@ -26,6 +26,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         setVolume: makeKey<[VolumeKey, VolumeUpdate]>('set-volume'),
     },
     checkForUpdates: makeKey<undefined>('check-for-updates'),
+    downloadUpdate: makeKey<undefined>('download-update'),
     clearCoils: makeKey<undefined>('clear-coils'),
     commands: {
         setAllKillState: makeKey<boolean>('set-kill-state'),
