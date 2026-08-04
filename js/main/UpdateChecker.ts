@@ -68,13 +68,16 @@ function httpGetJson<T>(url: string): Promise<T> {
 
 // Downloads to a temporary file first and only renames it into place once the byte count matches
 // what the server announced - a connection that drops early can otherwise still fire a "finish"
-// event with a silently truncated file.
-function httpDownload(url: string, destPath: string, expectedSize?: number): Promise<void> {
+// event with a silently truncated file. onProgress is called at most once per whole-percent change,
+// not on every chunk, so it doesn't flood the renderer with IPC messages.
+function httpDownload(
+    url: string, destPath: string, expectedSize: number | undefined, onProgress: (percent: number) => void,
+): Promise<void> {
     return new Promise((resolve, reject) => {
         https.get(url, {headers: {"User-Agent": "Teslaterm-Updater"}}, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 res.resume();
-                httpDownload(res.headers.location, destPath, expectedSize).then(resolve, reject);
+                httpDownload(res.headers.location, destPath, expectedSize, onProgress).then(resolve, reject);
                 return;
             }
             if (res.statusCode !== 200) {
@@ -85,7 +88,17 @@ function httpDownload(url: string, destPath: string, expectedSize?: number): Pro
             const partPath = destPath + ".part";
             const file = fs.createWriteStream(partPath);
             let received = 0;
-            res.on("data", (chunk) => received += chunk.length);
+            let lastPercent = -1;
+            res.on("data", (chunk) => {
+                received += chunk.length;
+                if (expectedSize) {
+                    const percent = Math.floor((received / expectedSize) * 100);
+                    if (percent !== lastPercent) {
+                        lastPercent = percent;
+                        onProgress(percent);
+                    }
+                }
+            });
             res.pipe(file);
             file.on("finish", () => file.close(() => {
                 if (expectedSize !== undefined && received !== expectedSize) {
@@ -118,7 +131,7 @@ function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
     return false;
 }
 
-// Writes a small PowerShell script (not a .bat) that:
+// Builds (but doesn't write to disk) a PowerShell script that:
 //   1. waits for this process to actually exit (its files are locked while running) via
 //      Wait-Process, which operates on the OS process handle rather than repeatedly re-looking up
 //      a PID number - unlike a poll loop that re-queries "is PID X still running" from scratch each
@@ -132,20 +145,23 @@ function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
 //      case a lingering handle needs a moment to let go - see /R and /W) - it only adds/overwrites
 //      files that exist in the new build, so user data alongside the exe (tt-ui-config.json,
 //      midis/, flight recordings, ...) is never touched since it isn't part of the release zip,
-//   4. relaunches the exe - but only if robocopy actually reported success (exit code < 8);
-//      otherwise the old install is left alone instead of launching something half-updated.
+//   4. relaunches the exe and cleans up the temp download - but only if robocopy actually reported
+//      success (exit code < 8); otherwise the old install is left alone instead of launching
+//      something half-updated, and update-error.log records what went wrong.
 //
-// PowerShell instead of a batch file specifically to get rid of the visible console flashing:
-// batch implements "cmd1 | cmd2" pipes by spawning a *second* cmd.exe to run each side of the
-// pipe, and those don't reliably inherit a hidden console even when the top-level process was
-// spawned with windowsHide - which is exactly what kept happening with the old
-// "tasklist | find" wait loop. This script has no pipes at all.
-function writeUpdateScript(
-    scriptPath: string, zipPath: string, stagingDir: string, installDir: string, exeName: string,
-): void {
-    const logPath = path.join(path.dirname(scriptPath), "update-error.log");
+// This is executed via `powershell -EncodedCommand`, deliberately *not* written to a .ps1 file and
+// run with -File: PowerShell's execution policy (and, on managed machines, Group Policy on top of
+// it) specifically gates running script *files* - -Command/-EncodedCommand input isn't subject to
+// the same restriction, so this can't get silently blocked by a policy that would otherwise make
+// the whole update quietly do nothing after the app closes. It also has no pipes anywhere (unlike
+// the old "tasklist | find" batch loop), which is what caused the console-flashing before this -
+// batch implements "cmd1 | cmd2" by spawning a *second* cmd.exe per pipe, and those don't reliably
+// inherit a hidden console even when the top-level process has windowsHide set.
+function buildUpdateScript(zipPath: string, stagingDir: string, installDir: string, exeName: string): string {
+    const tempDir = path.dirname(zipPath);
+    const logPath = path.join(tempDir, "update-error.log");
     const exePath = path.join(installDir, exeName);
-    const script = [
+    return [
         "$ErrorActionPreference = 'SilentlyContinue'",
         `Wait-Process -Id ${process.pid} -Timeout 30 -ErrorAction SilentlyContinue`,
         // Extra grace period for the OS to finish releasing file handles/memory maps after the
@@ -163,9 +179,8 @@ function writeUpdateScript(
         "    exit 1",
         "}",
         `Start-Process -FilePath "${exePath}"`,
-        "Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue",
+        `Remove-Item -Path "${tempDir}" -Recurse -Force -ErrorAction SilentlyContinue`,
     ].join("\r\n");
-    fs.writeFileSync(scriptPath, script, "utf-8");
 }
 
 export async function checkForUpdates() {
@@ -207,28 +222,39 @@ export async function downloadAndInstallUpdate() {
     }
     const asset = release.assets.find((a) => a.name === WINDOWS_ASSET_NAME);
     try {
-        reportStatus(`Downloading ${release.tag_name}...`);
+        reportStatus(`Downloading ${release.tag_name}... (0%)`);
         const tempDir = fs.mkdtempSync(path.join(app.getPath("temp"), "teslaterm-update-"));
         const zipPath = path.join(tempDir, WINDOWS_ASSET_NAME);
-        await httpDownload(asset.browser_download_url, zipPath, asset.size);
+        await httpDownload(asset.browser_download_url, zipPath, asset.size, (percent) => {
+            processIPC.send(IPC_CONSTANTS_TO_RENDERER.updateDownloadProgress, percent);
+            reportStatus(`Downloading ${release.tag_name}... (${percent}%)`);
+        });
 
         reportStatus("Installing update and restarting...");
         const stagingDir = path.join(tempDir, "extracted");
         const installDir = path.dirname(app.getPath("exe"));
         const exeName = path.basename(app.getPath("exe"));
-        const scriptPath = path.join(tempDir, "apply-update.ps1");
-        writeUpdateScript(scriptPath, zipPath, stagingDir, installDir, exeName);
+        const script = buildUpdateScript(zipPath, stagingDir, installDir, exeName);
+        // -EncodedCommand wants UTF-16LE, base64-encoded.
+        const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
 
         pendingRelease = undefined;
-        // -WindowStyle Hidden and windowsHide are somewhat redundant with each other, but cheap
-        // insurance - between the two of them, and this script having no pipes for cmd.exe to
-        // spawn extra hosts for, nothing here should ever flash a console window.
-        spawn(
+        const child = spawn(
             "powershell.exe",
-            ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+            ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encodedCommand],
             {cwd: tempDir, detached: true, stdio: "ignore", windowsHide: true},
-        ).unref();
-        app.quit();
+        );
+        // Only quit once the helper process has actually started - previously the app quit
+        // unconditionally right after calling spawn(), so if PowerShell failed to launch at all
+        // (blocked by security software, missing from PATH, ...) the app would just close with the
+        // update silently never happening and nothing left to explain why.
+        child.once("spawn", () => {
+            child.unref();
+            app.quit();
+        });
+        child.once("error", (err) => {
+            reportStatus(`Update failed to start: ${err.message || err}`, true);
+        });
     } catch (e) {
         reportStatus(`Update failed: ${e.message || e}`, true);
     }

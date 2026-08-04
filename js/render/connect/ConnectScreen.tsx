@@ -1,6 +1,6 @@
 import {shell} from "electron";
 import React from "react";
-import {Button, Form, Modal, Toast, ToastContainer} from "react-bootstrap";
+import {Button, Form, Modal, ProgressBar, Toast, ToastContainer} from "react-bootstrap";
 import {UD3ConnectionType} from "../../common/constants";
 import {InitialFRState, ParsedEvent} from "../../common/FlightRecorderTypes";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
@@ -78,6 +78,7 @@ interface ConnectScreenState {
     updateCheckIsError: boolean;
     updateAvailable: boolean;
     updateReleaseNotes?: string;
+    updateDownloadProgress?: number;
 }
 
 export interface FRDisplayData {
@@ -132,6 +133,9 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 updateCheckMessage: status.message,
                 updateReleaseNotes: status.releaseNotes,
             });
+        });
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.updateDownloadProgress, (percent) => {
+            this.setState({updateDownloadProgress: percent});
         });
     }
 
@@ -318,6 +322,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                             updateAvailable: false,
                             updateCheckIsError: false,
                             updateCheckMessage: undefined,
+                            updateDownloadProgress: undefined,
                             updateReleaseNotes: undefined,
                         });
                         processIPC.send(IPC_CONSTANTS_TO_MAIN.checkForUpdates, undefined);
@@ -338,12 +343,18 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             {this.state.updateAvailable && <Button
                 variant={'success'}
                 onClick={() => {
-                    this.setState({updateAvailable: false});
+                    this.setState({updateAvailable: false, updateDownloadProgress: 0});
                     processIPC.send(IPC_CONSTANTS_TO_MAIN.downloadUpdate, undefined);
                 }}
             >
                 Download &amp; install
             </Button>}
+            {this.state.updateDownloadProgress !== undefined && <ProgressBar
+                className={'tt-update-download-progress'}
+                now={this.state.updateDownloadProgress}
+                label={`${this.state.updateDownloadProgress}%`}
+                animated={this.state.updateDownloadProgress < 100}
+            />}
         </div>;
     }
 

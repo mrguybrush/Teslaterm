@@ -65,6 +65,10 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     updateCheckStatus: makeKey<{
         message: string, isError: boolean, updateAvailable: boolean, releaseNotes?: string,
     }>('update-check-status'),
+    // 0-100, sent (throttled to whole-percent changes) while the update zip downloads; undefined
+    // is never sent over the wire, the renderer just resets its own local value once the download
+    // finishes/fails/gets reset by a new check.
+    updateDownloadProgress: makeKey<number>('update-download-progress'),
 };
 
 export function getToRenderIPCPerCoil(coil: CoilID) {

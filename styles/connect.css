@@ -87,3 +87,8 @@
     border-radius: 4px;
     background: rgba(128, 128, 128, 0.08);
 }
+
+.tt-update-download-progress {
+    max-width: 20rem;
+    margin-top: 0.5rem;
+}
