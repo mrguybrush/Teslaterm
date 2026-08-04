@@ -5,6 +5,10 @@ export interface MidiLibraryEntry {
     filename: string;
     durationSeconds: number;
     polyphony: MidiPolyphonyClass;
+    // Peak number of notes sounding at the same instant anywhere in the file (percussion excluded,
+    // same as the polyphony classification above) - shown next to the polyphony dot so it's not
+    // just a rough mono/low/high bucket.
+    maxPolyphony: number;
 }
 
 // A playlist entry owns its own in/out trim range, so the same file can appear in different

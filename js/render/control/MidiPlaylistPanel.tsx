@@ -453,6 +453,14 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         />;
     }
 
+    // The dot only conveys a rough mono/low/high bucket - this is the actual peak count of notes
+    // sounding at once, for when that bucket isn't precise enough.
+    private makePolyphonyCount(maxPolyphony: number) {
+        return <span className={'tt-midi-polyphony-count'} title={'Max. simultaneous notes'}>
+            ×{maxPolyphony}
+        </span>;
+    }
+
     private makeLibraryColumn() {
         return <div className={'tt-midi-list'}>
             <div className={'tt-midi-list-header'}>Archive ({this.state.library.length})</div>
@@ -473,6 +481,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         onDoubleClick={this.onRowDoubleClick(() => this.playArchiveEntry(entry.filename))}
                     >
                         {this.makeDot(entry.polyphony)}
+                        {this.makePolyphonyCount(entry.maxPolyphony)}
                         <span className={'tt-midi-row-name'} title={entry.filename}>
                             {stripExtension(entry.filename)}
                         </span>
@@ -602,6 +611,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         onDoubleClick={this.onRowDoubleClick(() => this.playPlaylistEntry(index))}
                     >
                         {libraryEntry ? this.makeDot(libraryEntry.polyphony) : <span className={'tt-midi-dot'}/>}
+                        {libraryEntry && this.makePolyphonyCount(libraryEntry.maxPolyphony)}
                         <span className={'tt-midi-row-name'} title={entry.filename}>
                             {stripExtension(entry.filename)}
                         </span>

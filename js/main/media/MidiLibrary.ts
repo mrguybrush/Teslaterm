@@ -24,7 +24,9 @@ export function fixBrokenArray<T>(reallyTwoDimArray: T[]): T[] {
     return result;
 }
 
-export function analyzeMidiFile(bytes: Uint8Array): { durationSeconds: number, polyphony: MidiPolyphonyClass } {
+export function analyzeMidiFile(
+    bytes: Uint8Array,
+): { durationSeconds: number, polyphony: MidiPolyphonyClass, maxPolyphony: number } {
     const player = new MidiPlayer.Player();
     (player as any).defaultTempo = 120;
     player.loadArrayBuffer(bytes);
@@ -54,6 +56,7 @@ export function analyzeMidiFile(bytes: Uint8Array): { durationSeconds: number, p
     deltas.sort((a, b) => (a.tick - b.tick) || (a.order - b.order));
 
     let active = 0;
+    let maxActive = 0;
     let lastTick = deltas.length > 0 ? deltas[0].tick : 0;
     let soundingTicks = 0;
     let monoTicks = 0;
@@ -71,6 +74,7 @@ export function analyzeMidiFile(bytes: Uint8Array): { durationSeconds: number, p
         }
         lastTick = d.tick;
         active += d.delta;
+        maxActive = Math.max(maxActive, active);
     }
 
     let polyphony: MidiPolyphonyClass;
@@ -81,7 +85,7 @@ export function analyzeMidiFile(bytes: Uint8Array): { durationSeconds: number, p
     } else {
         polyphony = 'high';
     }
-    return {durationSeconds, polyphony};
+    return {durationSeconds, maxPolyphony: maxActive, polyphony};
 }
 
 function readLibraryIndex(): Record<string, MidiLibraryEntry> {
@@ -109,13 +113,13 @@ export function getMidiFilePath(filename: string): string {
 function analyzeAndCache(filename: string, index: Record<string, MidiLibraryEntry>): MidiLibraryEntry {
     try {
         const bytes = fs.readFileSync(getMidiFilePath(filename));
-        const {durationSeconds, polyphony} = analyzeMidiFile(new Uint8Array(bytes));
-        const entry: MidiLibraryEntry = {durationSeconds, filename, polyphony};
+        const {durationSeconds, polyphony, maxPolyphony} = analyzeMidiFile(new Uint8Array(bytes));
+        const entry: MidiLibraryEntry = {durationSeconds, filename, maxPolyphony, polyphony};
         index[filename] = entry;
         return entry;
     } catch (e) {
         console.warn("Failed to analyze MIDI file", filename, e);
-        const entry: MidiLibraryEntry = {durationSeconds: 0, filename, polyphony: 'mono'};
+        const entry: MidiLibraryEntry = {durationSeconds: 0, filename, maxPolyphony: 0, polyphony: 'mono'};
         index[filename] = entry;
         return entry;
     }
@@ -127,7 +131,9 @@ export function listLibrary(): MidiLibraryEntry[] {
     const index = readLibraryIndex();
     let changed = false;
     for (const filename of filesOnDisk) {
-        if (!index[filename]) {
+        // Re-analyzes entries cached before maxPolyphony existed, so existing libraries pick it up
+        // without needing a re-import.
+        if (!index[filename] || index[filename].maxPolyphony === undefined) {
             analyzeAndCache(filename, index);
             changed = true;
         }

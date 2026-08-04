@@ -294,6 +294,13 @@
     background: #dc3545;
 }
 
+.tt-midi-polyphony-count {
+    flex: 0 0 auto;
+    font-size: 0.7rem;
+    color: var(--bs-secondary-color);
+    min-width: 1.4em;
+}
+
 .tt-midi-drag-ghost {
     position: fixed;
     z-index: 2000;
