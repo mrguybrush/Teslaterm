@@ -60,8 +60,8 @@ export class MenuBar extends TTComponent<MenuProps, {}> {
         const coil = this.props.level.level !== 'central-control' ? this.props.level.coil : undefined;
         return <ButtonToolbar className="justify-content-between">
             <ButtonGroup>{this.makeMenuItems(allowInteraction)}</ButtonGroup>
-            {killbitElement}
             {coil !== undefined && <TrPwEditor coil={coil} disabled={!allowInteraction}/>}
+            {killbitElement}
             {this.makeDisconnectButton()}
         </ButtonToolbar>;
     }
