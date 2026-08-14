@@ -121,20 +121,29 @@ function httpDownload(
 }
 
 // Simple numeric X.Y.Z compare - good enough for this repo's plain vX.Y.Z tags, no pre-release
-// suffixes to worry about.
-function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
+// suffixes to worry about. Returns >0 if a is newer than b, <0 if older, 0 if equal.
+function compareVersions(a: string, b: string): number {
     const parse = (v: string) => v.replace(/^v/i, "").split(".").map((part) => parseInt(part, 10) || 0);
-    const remote = parse(remoteTag);
-    const current = parse(currentVersion);
-    for (let i = 0; i < Math.max(remote.length, current.length); ++i) {
-        const r = remote[i] || 0;
-        const c = current[i] || 0;
-        if (r !== c) {
-            return r > c;
+    const pa = parse(a);
+    const pb = parse(b);
+    for (let i = 0; i < Math.max(pa.length, pb.length); ++i) {
+        const diff = (pa[i] || 0) - (pb[i] || 0);
+        if (diff !== 0) {
+            return diff;
         }
     }
-    return false;
+    return 0;
 }
+
+function isNewerVersion(remoteTag: string, currentVersion: string): boolean {
+    return compareVersions(remoteTag, currentVersion) > 0;
+}
+
+// Versions before this shipped an auto-updater that didn't actually work (the update helper
+// process got torn down along with the app on Windows instead of surviving to finish the install,
+// fixed in v1.8.15/v1.8.16) - offering them in the version picker would let someone install a
+// build that then has no working way to update itself again afterwards.
+const MIN_SELECTABLE_VERSION = "1.8.16";
 
 // The PowerShell script that does the actual work once this app has exited:
 //   1. waits for this process to exit (its files are locked while running) via Wait-Process, which
@@ -238,6 +247,7 @@ export async function listAvailableVersions() {
         );
         const versions: AvailableVersion[] = releases
             .filter((r) => r.assets.some((a) => a.name === WINDOWS_ASSET_NAME))
+            .filter((r) => compareVersions(r.tag_name, MIN_SELECTABLE_VERSION) >= 0)
             .map((r) => ({name: r.name || r.tag_name, publishedAt: r.published_at || "", tag: r.tag_name}));
         processIPC.send(IPC_CONSTANTS_TO_RENDERER.availableVersions, versions);
     } catch (e) {
@@ -261,6 +271,14 @@ export async function selectVersion(tag: string) {
         const asset = release.assets.find((a) => a.name === WINDOWS_ASSET_NAME);
         if (!asset) {
             reportStatus(`Release ${release.tag_name} has no Windows build attached.`, true);
+            return;
+        }
+        if (compareVersions(release.tag_name, MIN_SELECTABLE_VERSION) < 0) {
+            reportStatus(
+                `${release.tag_name} predates v${MIN_SELECTABLE_VERSION}, when the auto-updater `
+                + "was fixed - it can't be installed through this picker.",
+                true,
+            );
             return;
         }
         pendingRelease = release;
