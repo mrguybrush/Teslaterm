@@ -89,7 +89,10 @@
 }
 
 .tt-update-download-progress {
-    max-width: 20rem;
+    /* .tt-app-settings is a flex column with align-items: flex-start, so without an explicit
+       width this shrinks to fit its own label text ("42%") instead of spanning a real bar. */
+    width: 20rem;
+    max-width: 100%;
     margin-top: 0.5rem;
 }
 
