@@ -218,7 +218,7 @@ export async function playMidiEvent(event: MidiPlayer.Event): Promise<boolean> {
     }
 }
 
-async function playMidiDataOn(coil: CoilID, data: number[] | Uint8Array) {
+export async function playMidiDataOn(coil: CoilID, data: number[] | Uint8Array): Promise<void> {
     await checkTransientDisabled(coil);
     const connectionState = getConnectionState(coil);
     if (connectionState instanceof Connected) {

@@ -11,7 +11,7 @@ import {getFlightRecorder} from "../connection/flightrecorder/FlightRecorder";
 import {config} from "../init";
 import {mainWindow} from "../main_electron";
 import {media_state} from "../media/media_player";
-import {playMidiData} from "../midi/midi";
+import {playMidiData, playMidiDataOn} from "../midi/midi";
 import {getUIConfig, setUIConfig} from "../UIConfigHandler";
 import {checkForUpdates, downloadAndInstallUpdate} from "../UpdateChecker";
 import {ipcs, MainIPC} from "./IPCProvider";
@@ -39,6 +39,10 @@ export class ByCoilMiscIPC {
         processIPC.on(
             getToMainIPCPerCoil(coil).dumpFlightRecorder,
             (coil) => getFlightRecorder(coil).exportAsFile(),
+        );
+        processIPC.onAsync(
+            getToMainIPCPerCoil(coil).midiMessage,
+            (msg) => playMidiDataOn(coil, msg),
         );
     }
 

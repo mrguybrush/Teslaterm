@@ -1,12 +1,14 @@
 import React, {ReactElement} from "react";
 import {Button, Dropdown} from "react-bootstrap";
-import {IPC_CONSTANTS_TO_MAIN} from "../../../common/IPCConstantsToMain";
+import {CoilID} from "../../../common/constants";
+import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../../common/IPCConstantsToMain";
 import {processIPC} from "../../ipc/IPCProvider";
 import {TTComponent} from "../../TTComponent";
 import {TTDropdown} from "../../TTDropdown";
 import MIDIInput = WebMidi.MIDIInput;
 
 export interface MidiSelectProps {
+    coil?: CoilID;
 }
 
 interface MidiSelectState {
@@ -79,7 +81,10 @@ export class MidiSourceSelect extends TTComponent<MidiSelectProps, MidiSelectSta
             oldState.currentInput.onmidimessage = undefined;
         }
         if (newInput) {
-            newInput.onmidimessage = (msg) => processIPC.send(IPC_CONSTANTS_TO_MAIN.midiMessage, msg.data);
+            const channel = this.props.coil !== undefined
+                ? getToMainIPCPerCoil(this.props.coil).midiMessage
+                : IPC_CONSTANTS_TO_MAIN.midiMessage;
+            newInput.onmidimessage = (msg) => processIPC.send(channel, msg.data);
         }
         return newInput;
     }

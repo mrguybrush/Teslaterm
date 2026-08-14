@@ -182,7 +182,7 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                 visuallyEnabled={trOn}
                 disabled={this.props.disabled || this.state.onlyMaxOntimeSettable}
             />
-            {this.props.enableMIDI && <MidiSourceSelect/>}
+            {this.props.enableMIDI && <MidiSourceSelect coil={coil}/>}
         </div>;
     }
 }

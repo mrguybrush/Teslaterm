@@ -112,6 +112,7 @@ export function getToMainIPCPerCoil(coil: CoilID) {
         },
         dumpFlightRecorder: makeCoilKey<CoilID>('dump-flight-recorder'),
         manualCommand: makeCoilKey<string>('manual-command'),
+        midiMessage: makeCoilKey<Uint8Array>('midi-message'),
         menu: {
             disconnect: makeCoilKey<undefined>('disconnect-from-coil'),
             downloadUD3ConfigElectron: makeCoilKey<undefined>('download-ud-config-electron'),
