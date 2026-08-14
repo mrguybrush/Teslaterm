@@ -69,7 +69,16 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     // is never sent over the wire, the renderer just resets its own local value once the download
     // finishes/fails/gets reset by a new check.
     updateDownloadProgress: makeKey<number>('update-download-progress'),
+    // Populated on request (the "Show all versions" button) so the user can pick any past release
+    // to install, not just the newest one - the same download/install flow handles both directions.
+    availableVersions: makeKey<AvailableVersion[]>('available-versions'),
 };
+
+export interface AvailableVersion {
+    tag: string;
+    name: string;
+    publishedAt: string;
+}
 
 export function getToRenderIPCPerCoil(coil: CoilID) {
     const suffix = coilSuffix(coil);

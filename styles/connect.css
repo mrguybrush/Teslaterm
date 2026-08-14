@@ -92,3 +92,14 @@
     max-width: 20rem;
     margin-top: 0.5rem;
 }
+
+.tt-update-version-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tt-update-version-picker .form-select {
+    width: auto;
+    max-width: 20rem;
+}

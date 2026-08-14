@@ -13,7 +13,7 @@ import {mainWindow} from "../main_electron";
 import {media_state} from "../media/media_player";
 import {playMidiData, playMidiDataOn} from "../midi/midi";
 import {getUIConfig, setUIConfig} from "../UIConfigHandler";
-import {checkForUpdates, downloadAndInstallUpdate} from "../UpdateChecker";
+import {checkForUpdates, downloadAndInstallUpdate, listAvailableVersions, selectVersion} from "../UpdateChecker";
 import {ipcs, MainIPC} from "./IPCProvider";
 import {TemporaryIPC} from "./TemporaryIPC";
 
@@ -108,6 +108,12 @@ export class CommonMiscIPC {
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.downloadUpdate, () => {
             downloadAndInstallUpdate();
+        });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.listAvailableVersions, () => {
+            listAvailableVersions();
+        });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.selectVersion, (tag) => {
+            selectVersion(tag);
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setSliderSize, (sliderSize) => {
             setUIConfig({sliderSize});

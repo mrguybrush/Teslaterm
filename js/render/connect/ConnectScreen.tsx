@@ -4,7 +4,7 @@ import {Button, Form, Modal, ProgressBar, Toast, ToastContainer} from "react-boo
 import {UD3ConnectionType} from "../../common/constants";
 import {InitialFRState, ParsedEvent} from "../../common/FlightRecorderTypes";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
-import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
+import {AvailableVersion, IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {AdvancedOptions} from "../../common/Options";
 import {
     SerialConnectionOptions,
@@ -84,6 +84,8 @@ interface ConnectScreenState {
     updateAvailable: boolean;
     updateReleaseNotes?: string;
     updateDownloadProgress?: number;
+    availableVersions?: AvailableVersion[];
+    selectedVersionTag?: string;
 }
 
 export interface FRDisplayData {
@@ -142,6 +144,9 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
         });
         this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.updateDownloadProgress, (percent) => {
             this.setState({updateDownloadProgress: percent});
+        });
+        this.addIPCListener(IPC_CONSTANTS_TO_RENDERER.availableVersions, (versions) => {
+            this.setState({availableVersions: versions, selectedVersionTag: versions[0]?.tag});
         });
     }
 
@@ -342,6 +347,42 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 >
                     {this.state.updateCheckMessage}
                 </span>}
+            </div>
+            <div className={'tt-update-version-picker'}>
+                <Button
+                    variant={'outline-secondary'}
+                    onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.listAvailableVersions, undefined)}
+                >
+                    Install a specific version...
+                </Button>
+                {this.state.availableVersions && <>
+                    <Form.Select
+                        value={this.state.selectedVersionTag}
+                        onChange={(ev) => this.setState({selectedVersionTag: ev.target.value})}
+                    >
+                        {this.state.availableVersions.map((v) => (
+                            <option key={v.tag} value={v.tag}>
+                                {v.name} ({v.tag})
+                            </option>
+                        ))}
+                    </Form.Select>
+                    <Button
+                        variant={'secondary'}
+                        disabled={!this.state.selectedVersionTag}
+                        onClick={() => {
+                            this.setState({
+                                updateAvailable: false,
+                                updateCheckIsError: false,
+                                updateCheckMessage: undefined,
+                                updateDownloadProgress: undefined,
+                                updateReleaseNotes: undefined,
+                            });
+                            processIPC.send(IPC_CONSTANTS_TO_MAIN.selectVersion, this.state.selectedVersionTag);
+                        }}
+                    >
+                        Select this version
+                    </Button>
+                </>}
             </div>
             {this.state.updateAvailable && this.state.updateReleaseNotes && <pre className={'tt-update-release-notes'}>
                 {this.renderWithLinks(this.state.updateReleaseNotes)}

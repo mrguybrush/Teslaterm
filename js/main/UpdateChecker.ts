@@ -3,7 +3,7 @@ import {spawn} from "child_process";
 import * as fs from "fs";
 import * as https from "https";
 import * as path from "path";
-import {IPC_CONSTANTS_TO_RENDERER} from "../common/IPCConstantsToRenderer";
+import {AvailableVersion, IPC_CONSTANTS_TO_RENDERER} from "../common/IPCConstantsToRenderer";
 import {processIPC} from "./ipc/IPCProvider";
 
 // Matches the release CI (.github/workflows/release.yml), which zips the Windows --dir build
@@ -22,7 +22,9 @@ interface GithubReleaseAsset {
 
 interface GithubRelease {
     tag_name: string;
+    name?: string;
     body: string;
+    published_at?: string;
     assets: GithubReleaseAsset[];
 }
 
@@ -219,6 +221,63 @@ export async function checkForUpdates() {
         );
     } catch (e) {
         reportStatus(`Update check failed: ${e.message || e}`, true);
+    }
+}
+
+// Lets the user install any past release, not just the newest one - e.g. to roll back a version
+// that misbehaves. GitHub returns releases newest-first, which is also the order the dropdown
+// should show them in.
+export async function listAvailableVersions() {
+    if (process.platform !== "win32") {
+        reportStatus("Automatic updates are only supported on Windows builds for now.", true);
+        return;
+    }
+    try {
+        const releases = await httpGetJson<GithubRelease[]>(
+            `https://api.github.com/repos/${REPO}/releases?per_page=100`,
+        );
+        const versions: AvailableVersion[] = releases
+            .filter((r) => r.assets.some((a) => a.name === WINDOWS_ASSET_NAME))
+            .map((r) => ({name: r.name || r.tag_name, publishedAt: r.published_at || "", tag: r.tag_name}));
+        processIPC.send(IPC_CONSTANTS_TO_RENDERER.availableVersions, versions);
+    } catch (e) {
+        reportStatus(`Failed to list versions: ${e.message || e}`, true);
+    }
+}
+
+// Same "check, then explicit download step" flow as checkForUpdates(), just for a release the user
+// picked by hand instead of always "latest" - this can be older, newer or equal to the version
+// currently running. downloadAndInstallUpdate() below doesn't care which of those it is.
+export async function selectVersion(tag: string) {
+    if (process.platform !== "win32") {
+        reportStatus("Automatic updates are only supported on Windows builds for now.", true);
+        return;
+    }
+    try {
+        reportStatus(`Loading ${tag}...`);
+        const release = await httpGetJson<GithubRelease>(
+            `https://api.github.com/repos/${REPO}/releases/tags/${encodeURIComponent(tag)}`,
+        );
+        const asset = release.assets.find((a) => a.name === WINDOWS_ASSET_NAME);
+        if (!asset) {
+            reportStatus(`Release ${release.tag_name} has no Windows build attached.`, true);
+            return;
+        }
+        pendingRelease = release;
+        const currentVersion = app.getVersion();
+        const currentTag = currentVersion.replace(/^v/i, "");
+        const releaseVersion = release.tag_name.replace(/^v/i, "");
+        const action = releaseVersion === currentTag
+            ? "Reinstall"
+            : isNewerVersion(release.tag_name, currentVersion) ? "Update" : "Downgrade";
+        reportStatus(
+            `${action} to ${release.tag_name} selected (currently v${currentVersion}).`,
+            false,
+            true,
+            release.body || undefined,
+        );
+    } catch (e) {
+        reportStatus(`Failed to load ${tag}: ${e.message || e}`, true);
     }
 }
 
