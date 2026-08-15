@@ -16,12 +16,19 @@ export interface UDPConnectionOptions {
     udpMinPort: number;
 }
 
+export interface SimulatedConnectionOptions {
+    name: string;
+}
+
 export type UD3ConnectionOptions = {
     connectionType: UD3ConnectionType.serial_min | UD3ConnectionType.serial_plain;
     options: SerialConnectionOptions;
 } | {
     connectionType: UD3ConnectionType.udp_min;
     options: UDPConnectionOptions;
+} | {
+    connectionType: UD3ConnectionType.simulated;
+    options: SimulatedConnectionOptions;
 };
 
 export type SingleConnectionOptions = UD3ConnectionOptions & { advanced: AdvancedOptions };

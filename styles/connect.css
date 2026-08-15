@@ -106,3 +106,13 @@
     width: auto;
     max-width: 20rem;
 }
+
+.tt-simulate-coils {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tt-simulate-coils-count {
+    width: 5rem;
+}

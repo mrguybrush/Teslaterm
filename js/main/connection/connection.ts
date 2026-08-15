@@ -1,4 +1,4 @@
-import {CoilID} from "../../common/constants";
+import {CoilID, UD3ConnectionType} from "../../common/constants";
 import {FlightEventType} from "../../common/FlightRecorderTypes";
 import {ConnectionStatus, ToastSeverity} from "../../common/IPCConstantsToRenderer";
 import {PlayerActivity} from "../../common/MediaTypes";
@@ -10,7 +10,7 @@ import {setRelativeOntime} from "../ipc/sliders";
 import * as media from "../media/media_player";
 import {media_state} from "../media/media_player";
 import {MixerState} from "../media/mixer/MixerState";
-import {setLastConnectionOptions, setUIConfig} from "../UIConfigHandler";
+import {getUIConfig, setLastConnectionOptions, setUIConfig} from "../UIConfigHandler";
 import {CommandInterface} from "./commands";
 import {ExtraConnections} from "./ExtraConnections";
 import {getFlightRecorder} from "./flightrecorder/FlightRecorder";
@@ -180,6 +180,25 @@ export async function multiConnect(args: MultiConnectionOptions) {
             await new Idle(coilArg).connect(makeNewCoilID());
         },
     ));
+}
+
+// Testing aid: brings up `count` simulated (no real hardware) coils through the exact same
+// state machine a real connect goes through, so the whole MultiCoil UI (per-coil tabs, Central
+// Control, per-coil MIDI input, ...) can be exercised without owning that many real coils.
+export async function startSimulation(count: number) {
+    const multicoil = count > 1;
+    const advanced = getUIConfig().syncedConfig.advancedOptions;
+    await setRelativeOntime(multicoil ? 0 : 100);
+    initializeExtraConnections(advanced, multicoil);
+    await Promise.all(
+        Array.from({length: count}, (_, i) => i).map(async (i) => {
+            await sleep(100 * i);
+            await new Idle({
+                connectionType: UD3ConnectionType.simulated,
+                options: {name: `Simulated Coil ${i + 1}`},
+            }).connect(makeNewCoilID());
+        }),
+    );
 }
 
 let nextCoilID = 0;

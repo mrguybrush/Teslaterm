@@ -37,6 +37,7 @@ export enum UD3ConnectionType {
     udp_min,
     serial_min,
     serial_plain,
+    simulated,
 }
 
 export const CONNECTION_TYPES_BY_NAME = new Map<string, UD3ConnectionType>();
@@ -48,7 +49,7 @@ export const CONNECTION_TYPE_DESCS = new Map<UD3ConnectionType, string>();
 CONNECTION_TYPE_DESCS.set(UD3ConnectionType.udp_min, "MIN over UDP");
 CONNECTION_TYPE_DESCS.set(UD3ConnectionType.serial_min, "Serial (MIN)");
 CONNECTION_TYPE_DESCS.set(UD3ConnectionType.serial_plain, "Serial (Plain)");
-// connection_types.set(dummy, "Dummy connection (debug only!)");
+CONNECTION_TYPE_DESCS.set(UD3ConnectionType.simulated, "Simulated (debug only)");
 
 //export interface CoilID {
 //    id: number;

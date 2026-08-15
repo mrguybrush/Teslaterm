@@ -178,7 +178,7 @@ export function setLastConnectionOptions(options: UD3ConnectionOptions) {
     newOptions.type = options.connectionType;
     if (options.connectionType === UD3ConnectionType.udp_min) {
         newOptions.udpOptions = options.options;
-    } else {
+    } else if (options.connectionType !== UD3ConnectionType.simulated) {
         newOptions.serialOptions = options.options;
     }
     setUIConfig({lastConnectOptions: newOptions});

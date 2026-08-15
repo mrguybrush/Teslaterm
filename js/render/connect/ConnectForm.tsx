@@ -88,6 +88,11 @@ export class ConnectForm extends TTComponent<ConnectFormProps, ConnectFormState>
         }
         const possibleTypes: React.JSX.Element[] = [];
         for (const [type, desc] of CONNECTION_TYPE_DESCS.entries()) {
+            // "Simulated" isn't a real connection type a user picks here - it's only ever
+            // reached through the dedicated "Start simulation" testing action in Settings.
+            if (type === UD3ConnectionType.simulated) {
+                continue;
+            }
             possibleTypes.push(
                 <Dropdown.Item
                     key={possibleTypes.length}

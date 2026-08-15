@@ -10,6 +10,7 @@ import {setConnectionState} from "../connection";
 import {resetAlarms} from "../telemetry/Alarms";
 import {createPlainSerialConnection} from "../types/PlainSerialConnection";
 import {createMinSerialConnection} from "../types/SerialMinConnection";
+import {createSimulatedConnection} from "../types/SimulatedConnection";
 import {collectSerialConnectionSuggestions, collectUDPConnectionSuggestions} from "../types/Suggestions";
 import {TerminalHandle, UD3Connection} from "../types/UD3Connection";
 import {createMinUDPConnection} from "../types/UDPMinConnection";
@@ -60,6 +61,8 @@ export class Idle implements IConnectionState {
                 return connectSerial(coil, this.options.options, createMinSerialConnection);
             case UD3ConnectionType.udp_min:
                 return connectUDP(coil, this.options.options);
+            case UD3ConnectionType.simulated:
+                return createSimulatedConnection(coil, this.options.options);
             default:
                 ipcs.connectionUI.sendConnectionError(
                     coil,

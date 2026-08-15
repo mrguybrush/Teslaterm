@@ -86,6 +86,7 @@ interface ConnectScreenState {
     updateDownloadProgress?: number;
     availableVersions?: AvailableVersion[];
     selectedVersionTag?: string;
+    simulatedCoilCount: number;
 }
 
 export interface FRDisplayData {
@@ -126,6 +127,7 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
             error: '',
             showingError: false,
             showingSettings: false,
+            simulatedCoilCount: 2,
             updateAvailable: false,
             updateCheckIsError: false,
             windowSizeJustSaved: false,
@@ -402,6 +404,25 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                 label={`${this.state.updateDownloadProgress}%`}
                 animated={this.state.updateDownloadProgress < 100}
             />}
+            <div className={'tt-simulate-coils'}>
+                <span>Simulate coils (testing only):</span>
+                <Form.Control
+                    className={'tt-simulate-coils-count'}
+                    type={'number'}
+                    min={1}
+                    max={8}
+                    value={this.state.simulatedCoilCount}
+                    onChange={(ev) => this.setState({
+                        simulatedCoilCount: Math.min(8, Math.max(1, parseInt(ev.target.value, 10) || 1)),
+                    })}
+                />
+                <Button
+                    variant={'secondary'}
+                    onClick={() => processIPC.send(IPC_CONSTANTS_TO_MAIN.startSimulation, this.state.simulatedCoilCount)}
+                >
+                    Start simulation
+                </Button>
+            </div>
         </div>;
     }
 

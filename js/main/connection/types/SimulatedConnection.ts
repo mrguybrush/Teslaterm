@@ -1,0 +1,123 @@
+import {CoilID, FEATURE_PROTOCOL_VERSION, LAST_SUPPORTED_PROTOCOL} from "../../../common/constants";
+import {SimulatedConnectionOptions} from "../../../common/SingleConnectionOptions";
+import {ipcs} from "../../ipc/IPCProvider";
+import {ISidConnection} from "../../sid/ISidConnection";
+import {resetResponseTimeout} from "../state/Connected";
+import {updateStateFromTelemetry} from "../telemetry/UD3State";
+import {UD3Connection} from "./UD3Connection";
+
+// Matches the app's own "3-phase" nominal bus voltage (see RangeOverride.ts) - simulated coils
+// always pretend to be 3-phase, so this is the number the Bus voltage gauge shows once a
+// simulated coil's bus is switched on.
+const SIMULATED_BUS_VOLTAGE = 600;
+
+export class SimulatedConnection extends UD3Connection {
+    private readonly name: string;
+    private busActive = false;
+    private transientActive = false;
+    private killBitSet = false;
+
+    constructor(coil: CoilID, options: SimulatedConnectionOptions) {
+        super(coil);
+        this.name = options.name;
+    }
+
+    public async connect(): Promise<void> {
+        ipcs.coilMisc(this.getCoil()).sendUDName(this.name);
+        ipcs.meters(this.getCoil()).configure(0, 0, SIMULATED_BUS_VOLTAGE, 1, "Bus voltage");
+        this.pushState();
+    }
+
+    public getFeatureValue(feature: string): string {
+        // Real coils negotiate their protocol version over the wire; a simulated one just claims
+        // to support the newest one this app knows about, so it passes the same multicoil-support
+        // check a real coil would (see Connected.tickFast()).
+        if (feature === FEATURE_PROTOCOL_VERSION) {
+            return LAST_SUPPORTED_PROTOCOL.toFixed(1);
+        }
+        return super.getFeatureValue(feature);
+    }
+
+    // All the state-changing commands this app sends (bus on/off, tr start/stop, kill set/reset,
+    // set pw/bon/boff/pwd/vol/synth, tterm start/stop, ...) go out as plain ASCII lines over
+    // sendTelnet - so intercepting them here is enough to react like a real coil would, without
+    // needing to simulate the actual binary UD3 protocol.
+    public async sendTelnet(data: Buffer): Promise<void> {
+        switch (data.toString().trim()) {
+            case 'bus on':
+                this.busActive = true;
+                break;
+            case 'bus off':
+                this.busActive = false;
+                this.transientActive = false;
+                break;
+            case 'tr start':
+                this.transientActive = this.busActive;
+                break;
+            case 'tr stop':
+                this.transientActive = false;
+                break;
+            case 'kill set':
+                this.killBitSet = true;
+                this.busActive = false;
+                this.transientActive = false;
+                break;
+            case 'kill reset':
+                this.killBitSet = false;
+                break;
+            default:
+                // Everything else has no simulated hardware behind it to react to - silently
+                // accepted, same as a real coil just applying a setting without talking back.
+                break;
+        }
+        this.pushState();
+    }
+
+    public async sendMidi(): Promise<void> {
+        // No synthesizer behind a simulated coil.
+    }
+
+    public async sendVMSFrame(): Promise<void> {
+        throw new Error('VMS is not supported for simulated connections');
+    }
+
+    public getSidConnection(): ISidConnection {
+        return undefined;
+    }
+
+    public async sendDisconnectData(): Promise<void> {
+    }
+
+    public releaseResources(): void {
+    }
+
+    public resetWatchdog(): void {
+    }
+
+    public tick(): void {
+        // Simulated coils never actually go quiet, so keep marking them as "just heard from" -
+        // otherwise Connected.tickFast() would decide the connection was lost after 1 second.
+        resetResponseTimeout(this.getCoil());
+    }
+
+    public getUDName(): string | undefined {
+        return this.name;
+    }
+
+    protected async setSynthImpl(): Promise<void> {
+    }
+
+    private pushState() {
+        const packedState =
+            (this.busActive ? 1 : 0) |
+            (this.transientActive ? 2 : 0) |
+            4 | // busControllable - a simulated bus can always be switched on/off
+            (this.killBitSet ? 8 : 0);
+        updateStateFromTelemetry(this.getCoil(), packedState);
+        ipcs.meters(this.getCoil()).setValue(0, this.busActive ? SIMULATED_BUS_VOLTAGE : 0);
+    }
+}
+
+export function createSimulatedConnection(coil: CoilID, options: SimulatedConnectionOptions): UD3Connection {
+    return new SimulatedConnection(coil, options);
+}

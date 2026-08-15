@@ -6,7 +6,7 @@ import {
     ToastSeverity,
     UD3ConfigOption,
 } from "../../common/IPCConstantsToRenderer";
-import {forEachCoil, getMixer} from "../connection/connection";
+import {forEachCoil, getMixer, startSimulation} from "../connection/connection";
 import {getFlightRecorder} from "../connection/flightrecorder/FlightRecorder";
 import {config} from "../init";
 import {mainWindow} from "../main_electron";
@@ -114,6 +114,9 @@ export class CommonMiscIPC {
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.selectVersion, (tag) => {
             selectVersion(tag);
+        });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.startSimulation, (count) => {
+            startSimulation(count).catch((err) => console.error("While starting simulation:", err));
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setSliderSize, (sliderSize) => {
             setUIConfig({sliderSize});
