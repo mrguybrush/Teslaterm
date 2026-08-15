@@ -2,7 +2,7 @@ import React, {ReactElement} from "react";
 import {Button, Dropdown} from "react-bootstrap";
 import {CoilID} from "../../../common/constants";
 import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../../common/IPCConstantsToMain";
-import {getToRenderIPCPerCoil} from "../../../common/IPCConstantsToRenderer";
+import {IPC_CONSTANTS_TO_RENDERER} from "../../../common/IPCConstantsToRenderer";
 import {processIPC} from "../../ipc/IPCProvider";
 import {TTComponent} from "../../TTComponent";
 import {TTDropdown} from "../../TTDropdown";
@@ -43,28 +43,28 @@ type SelectableInput = MIDIInput | SimulatedMidiInput;
 interface MidiSelectState {
     access?: WebMidi.MIDIAccess;
     currentInput?: SelectableInput;
-    simulatedDeviceName?: string;
+    simulatedDeviceNames: string[];
 }
 
 export class MidiSourceSelect extends TTComponent<MidiSelectProps, MidiSelectState> {
     constructor(props) {
         super(props);
-        this.state = {};
+        this.state = {simulatedDeviceNames: []};
     }
 
     public componentDidMount() {
         this.setupMidiAccess()
             .catch((e) => console.warn("Failed to get MIDI access:", e));
-        if (this.props.coil !== undefined) {
-            this.addIPCListener(
-                getToRenderIPCPerCoil(this.props.coil).simulatedMidiDeviceName,
-                (simulatedDeviceName) => this.setState({simulatedDeviceName}),
-            );
-        }
+        // Global, not per-coil: every coil's dropdown offers every simulated device, so any of
+        // them can be freely assigned to any coil - same as real MIDI devices already work.
+        this.addIPCListener(
+            IPC_CONSTANTS_TO_RENDERER.simulatedMidiDevices,
+            (simulatedDeviceNames) => this.setState({simulatedDeviceNames}),
+        );
     }
 
     public render() {
-        if (!this.state.access && !this.state.simulatedDeviceName) {
+        if (!this.state.access && this.state.simulatedDeviceNames.length === 0) {
             return <></>;
         }
         const items: ReactElement[] = [
@@ -78,14 +78,13 @@ export class MidiSourceSelect extends TTComponent<MidiSelectProps, MidiSelectSta
                 None
             </Dropdown.Item>,
         ];
-        if (this.state.simulatedDeviceName) {
-            const name = this.state.simulatedDeviceName;
+        for (const name of this.state.simulatedDeviceNames) {
             items.push(<Dropdown.Item
                 as={Button}
                 onClick={() => this.setState((state) => {
                     return {currentInput: this.selectInput(state, new SimulatedMidiInput(name))};
                 })}
-                key={'simulated'}
+                key={'simulated-' + name}
             >
                 {name}
             </Dropdown.Item>);

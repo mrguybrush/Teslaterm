@@ -18,6 +18,7 @@ import {Connected} from "./state/Connected";
 import {IConnectionState} from "./state/IConnectionState";
 import {Idle} from "./state/Idle";
 import {resetAllAlarms} from "./telemetry/Alarms";
+import {clearSimulatedMidiDevices} from "./types/SimulatedConnection";
 import {TerminalHandle, UD3Connection} from "./types/UD3Connection";
 
 const connectionState: Map<CoilID, IConnectionState> = new Map<CoilID, IConnectionState>();
@@ -62,6 +63,7 @@ export function clearCoils() {
     }
     nextCoilID = 0;
     resetAllAlarms();
+    clearSimulatedMidiDevices();
     // TODO clear e.g. SID caches
 }
 

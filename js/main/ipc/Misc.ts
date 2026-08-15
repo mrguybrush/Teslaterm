@@ -65,10 +65,6 @@ export class ByCoilMiscIPC {
         this.sendSync();
     }
 
-    public sendSimulatedMidiDeviceName(name: string) {
-        this.processIPC.send(this.renderIPCs.simulatedMidiDeviceName, name);
-    }
-
     public sendSync() {
         if (this.udName) {
             this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.udName, [this.coil, this.udName]);
@@ -164,6 +160,10 @@ export class CommonMiscIPC {
         this.processIPC.send(
             IPC_CONSTANTS_TO_RENDERER.openToastOn, [{title, message, level: severity, mergeKey}, undefined],
         );
+    }
+
+    public sendSimulatedMidiDevices(names: string[]) {
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.simulatedMidiDevices, names);
     }
 
     public syncUIConfig() {

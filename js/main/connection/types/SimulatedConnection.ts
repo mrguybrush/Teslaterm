@@ -11,6 +11,20 @@ import {UD3Connection} from "./UD3Connection";
 // simulated coil's bus is switched on.
 const SIMULATED_BUS_VOLTAGE = 600;
 
+// Every simulated coil's fake MIDI device name, keyed by coil - broadcast as one flat list to
+// every coil's MIDI input dropdown (not just the owning coil's), so any device can be freely
+// assigned to any coil, exactly like real MIDI devices already work.
+const activeSimulatedDevices: Map<CoilID, string> = new Map();
+
+function broadcastSimulatedDevices() {
+    ipcs.misc.sendSimulatedMidiDevices([...activeSimulatedDevices.values()]);
+}
+
+export function clearSimulatedMidiDevices() {
+    activeSimulatedDevices.clear();
+    broadcastSimulatedDevices();
+}
+
 export class SimulatedConnection extends UD3Connection {
     private readonly name: string;
     private readonly midiDeviceName: string;
@@ -27,7 +41,8 @@ export class SimulatedConnection extends UD3Connection {
 
     public async connect(): Promise<void> {
         ipcs.coilMisc(this.getCoil()).sendUDName(this.name);
-        ipcs.coilMisc(this.getCoil()).sendSimulatedMidiDeviceName(this.midiDeviceName);
+        activeSimulatedDevices.set(this.getCoil(), this.midiDeviceName);
+        broadcastSimulatedDevices();
         ipcs.meters(this.getCoil()).configure(0, 0, SIMULATED_BUS_VOLTAGE, 1, "Bus voltage");
         ipcs.meters(this.getCoil()).configure(1, 0, 999, 1, "MIDI notes received");
         this.pushState();
@@ -100,6 +115,8 @@ export class SimulatedConnection extends UD3Connection {
     }
 
     public releaseResources(): void {
+        activeSimulatedDevices.delete(this.getCoil());
+        broadcastSimulatedDevices();
     }
 
     public resetWatchdog(): void {

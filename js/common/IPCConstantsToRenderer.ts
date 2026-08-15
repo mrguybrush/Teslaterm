@@ -72,6 +72,11 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     // Populated on request (the "Show all versions" button) so the user can pick any past release
     // to install, not just the newest one - the same download/install flow handles both directions.
     availableVersions: makeKey<AvailableVersion[]>('available-versions'),
+    // Names of the fake MIDI devices any currently simulated coils offer (see the "Simulate
+    // coils" testing feature) - sent as one global, non-per-coil list so every coil's MIDI input
+    // dropdown offers all of them and any coil can be freely assigned any of them, exactly like
+    // real MIDI devices already work.
+    simulatedMidiDevices: makeKey<string[]>('simulated-midi-devices'),
 };
 
 export interface AvailableVersion {
@@ -100,7 +105,6 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
             syncSettings: makeCoilKey<ISliderState>('slider-sync'),
         },
         configList: makeCoilKey<UD3ConfigOption[]>('config-list'),
-        simulatedMidiDeviceName: makeCoilKey<string>('simulated-midi-device-name'),
         singleConfigValue: makeCoilKey<UD3ConfigOption>('single-config-value'),
         terminal: makeCoilKey<string>('terminal'),
         udConfig: makeCoilKey<UD3ConfigOption[]>('ud-config'),
