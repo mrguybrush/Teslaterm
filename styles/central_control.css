@@ -28,6 +28,24 @@
     padding-bottom: 5px;
 }
 
+.tt-central-midi-inputs {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 10px;
+}
+
+.tt-central-midi-input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tt-central-midi-input-label {
+    font-weight: bold;
+}
+
 .tt-mixer {
     flex: 1 1 auto;
     display: flex;

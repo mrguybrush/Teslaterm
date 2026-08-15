@@ -7,6 +7,7 @@ import {processIPC} from "../../ipc/IPCProvider";
 import {TTComponent} from "../../TTComponent";
 import {CoilState} from "../MainScreen";
 import {MenuBar} from "../menu/Menu";
+import {MidiSourceSelect} from "../sliders/MidiSourceSelect";
 import {Sliders} from "../sliders/Sliders";
 import {Toasts, ToastsProps} from "../Toasts";
 import {Mixer} from "./mixer/Mixer";
@@ -51,10 +52,16 @@ export class CentralControlTab extends TTComponent<ControlTabProps, {}> {
                     <TelemetryOverview coils={this.props.coils}/>
                     <Sliders
                         disabled={false}
-                        enableMIDI={this.props.config.advancedOptions.enableMIDIInput}
+                        enableMIDI={false}
                         level={{level: 'central-control'}}
                     />
                 </div>
+                {this.props.config.advancedOptions.enableMIDIInput && <div className={'tt-central-midi-inputs'}>
+                    {this.props.coils.map((coil) => <div className={'tt-central-midi-input'} key={coil.id}>
+                        <span className={'tt-central-midi-input-label'}>{coil.name || `Coil ${coil.id}`}</span>
+                        <MidiSourceSelect coil={coil.id}/>
+                    </div>)}
+                </div>}
                 <Mixer
                     coils={this.props.coils}
                     ttConfig={this.props.ttConfig}
