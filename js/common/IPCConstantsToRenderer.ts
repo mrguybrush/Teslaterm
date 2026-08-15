@@ -100,6 +100,7 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
             syncSettings: makeCoilKey<ISliderState>('slider-sync'),
         },
         configList: makeCoilKey<UD3ConfigOption[]>('config-list'),
+        simulatedMidiDeviceName: makeCoilKey<string>('simulated-midi-device-name'),
         singleConfigValue: makeCoilKey<UD3ConfigOption>('single-config-value'),
         terminal: makeCoilKey<string>('terminal'),
         udConfig: makeCoilKey<UD3ConfigOption[]>('ud-config'),

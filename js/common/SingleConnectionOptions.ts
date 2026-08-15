@@ -18,6 +18,7 @@ export interface UDPConnectionOptions {
 
 export interface SimulatedConnectionOptions {
     name: string;
+    midiDeviceName: string;
 }
 
 export type UD3ConnectionOptions = {

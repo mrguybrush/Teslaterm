@@ -195,7 +195,7 @@ export async function startSimulation(count: number) {
             await sleep(100 * i);
             await new Idle({
                 connectionType: UD3ConnectionType.simulated,
-                options: {name: `Simulated Coil ${i + 1}`},
+                options: {midiDeviceName: `MidiSpule${i + 1}`, name: `Simulated Coil ${i + 1}`},
             }).connect(makeNewCoilID());
         }),
     );

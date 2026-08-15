@@ -13,18 +13,23 @@ const SIMULATED_BUS_VOLTAGE = 600;
 
 export class SimulatedConnection extends UD3Connection {
     private readonly name: string;
+    private readonly midiDeviceName: string;
     private busActive = false;
     private transientActive = false;
     private killBitSet = false;
+    private midiNoteCount = 0;
 
     constructor(coil: CoilID, options: SimulatedConnectionOptions) {
         super(coil);
         this.name = options.name;
+        this.midiDeviceName = options.midiDeviceName;
     }
 
     public async connect(): Promise<void> {
         ipcs.coilMisc(this.getCoil()).sendUDName(this.name);
+        ipcs.coilMisc(this.getCoil()).sendSimulatedMidiDeviceName(this.midiDeviceName);
         ipcs.meters(this.getCoil()).configure(0, 0, SIMULATED_BUS_VOLTAGE, 1, "Bus voltage");
+        ipcs.meters(this.getCoil()).configure(1, 0, 999, 1, "MIDI notes received");
         this.pushState();
     }
 
@@ -73,8 +78,14 @@ export class SimulatedConnection extends UD3Connection {
         this.pushState();
     }
 
-    public async sendMidi(): Promise<void> {
-        // No synthesizer behind a simulated coil.
+    public async sendMidi(data: Buffer): Promise<void> {
+        // No synthesizer behind a simulated coil - but a Note On is still counted, so selecting
+        // different simulated MIDI devices per coil tab is actually verifiable without hardware.
+        const isNoteOn = (data[0] & 0xf0) === 0x90 && data[2] > 0;
+        if (isNoteOn) {
+            this.midiNoteCount++;
+            ipcs.meters(this.getCoil()).setValue(1, this.midiNoteCount);
+        }
     }
 
     public async sendVMSFrame(): Promise<void> {

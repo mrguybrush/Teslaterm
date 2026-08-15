@@ -65,6 +65,10 @@ export class ByCoilMiscIPC {
         this.sendSync();
     }
 
+    public sendSimulatedMidiDeviceName(name: string) {
+        this.processIPC.send(this.renderIPCs.simulatedMidiDeviceName, name);
+    }
+
     public sendSync() {
         if (this.udName) {
             this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.udName, [this.coil, this.udName]);
