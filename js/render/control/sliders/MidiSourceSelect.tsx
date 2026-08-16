@@ -61,6 +61,9 @@ export class MidiSourceSelect extends TTComponent<MidiSelectProps, MidiSelectSta
             IPC_CONSTANTS_TO_RENDERER.simulatedMidiDevices,
             (simulatedDeviceNames) => this.setState({simulatedDeviceNames}),
         );
+        // Devices already registered before this instance mounted were broadcast before this
+        // listener existed to catch them - ask for a fresh copy now that it's subscribed.
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.requestSimulatedMidiDevices, undefined);
     }
 
     public render() {

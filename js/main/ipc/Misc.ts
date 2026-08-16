@@ -8,6 +8,7 @@ import {
 } from "../../common/IPCConstantsToRenderer";
 import {forEachCoil, getMixer, startSimulation} from "../connection/connection";
 import {getFlightRecorder} from "../connection/flightrecorder/FlightRecorder";
+import {resendSimulatedMidiDevices} from "../connection/types/SimulatedConnection";
 import {config} from "../init";
 import {mainWindow} from "../main_electron";
 import {media_state} from "../media/media_player";
@@ -117,6 +118,9 @@ export class CommonMiscIPC {
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.startSimulation, (count) => {
             startSimulation(count).catch((err) => console.error("While starting simulation:", err));
+        });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.requestSimulatedMidiDevices, () => {
+            resendSimulatedMidiDevices();
         });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setSliderSize, (sliderSize) => {
             setUIConfig({sliderSize});

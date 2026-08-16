@@ -25,6 +25,13 @@ export function clearSimulatedMidiDevices() {
     broadcastSimulatedDevices();
 }
 
+// A MidiSourceSelect that mounts after some simulated devices already registered would otherwise
+// never see them - broadcasts are only delivered to listeners that were already subscribed at the
+// time they went out. Newly-mounted dropdowns call this once to get caught up.
+export function resendSimulatedMidiDevices() {
+    broadcastSimulatedDevices();
+}
+
 export class SimulatedConnection extends UD3Connection {
     private readonly name: string;
     private readonly midiDeviceName: string;

@@ -30,6 +30,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
     listAvailableVersions: makeKey<undefined>('list-available-versions'),
     selectVersion: makeKey<string>('select-version'),
     startSimulation: makeKey<number>('start-simulation'),
+    requestSimulatedMidiDevices: makeKey<undefined>('request-simulated-midi-devices'),
     clearCoils: makeKey<undefined>('clear-coils'),
     commands: {
         setAllKillState: makeKey<boolean>('set-kill-state'),
