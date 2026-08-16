@@ -1,5 +1,5 @@
 import React from "react";
-import {Accordion, Button, Col, Form, OverlayTrigger, Row, Tooltip} from "react-bootstrap";
+import {Button, Col, Form, OverlayTrigger, Row, Tooltip} from "react-bootstrap";
 import Dropdown from "react-bootstrap/Dropdown";
 import {OverlayInjectedProps} from "react-bootstrap/Overlay";
 import {
@@ -42,27 +42,19 @@ export class AdvancedOptionsForm extends TTComponent<AdvancedFormProps, {}> {
             }
         })();
         return (
-            <Accordion defaultActiveKey={'-1'}>
-                <Accordion.Item eventKey={'0'}>
-                    <Accordion.Header>Advanced Settings</Accordion.Header>
-                    <Accordion.Body style={({
-                        // TODO sort of a hack, but works well enough
-                        height: '50vh',
-                        overflowY: 'auto',
-                    })}>
-                        <Form.Group key={'direct-midi'}>
-                            {this.buildDirectMIDIConfig()}
-                        </Form.Group>
-                        <Form.Group key={'netsid'} style={{borderTop: 'solid'}}>
-                            {this.buildNetSIDConfig()}
-                        </Form.Group>
-                        <Form.Group key={'rtpmidi'} style={{borderTop: 'solid'}}>
-                            {this.buildRTPMIDIConfig()}
-                        </Form.Group>
-                        {mixerElement}
-                    </Accordion.Body>
-                </Accordion.Item>
-            </Accordion>
+            <div className={'tt-advanced-settings'}>
+                <div className={'tt-advanced-settings-header'}>Advanced Settings</div>
+                <Form.Group key={'direct-midi'} style={{borderTop: 'solid'}}>
+                    {this.buildDirectMIDIConfig()}
+                </Form.Group>
+                <Form.Group key={'netsid'} style={{borderTop: 'solid'}}>
+                    {this.buildNetSIDConfig()}
+                </Form.Group>
+                <Form.Group key={'rtpmidi'} style={{borderTop: 'solid'}}>
+                    {this.buildRTPMIDIConfig()}
+                </Form.Group>
+                {mixerElement}
+            </div>
         );
     }
 
