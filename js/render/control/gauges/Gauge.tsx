@@ -63,12 +63,16 @@ export class Gauge extends TTComponent<GaugeProps, {}> {
 
     public componentWillUnmount() {
         super.componentWillUnmount();
+        // disconnect() (not unobserve()) guarantees no already-queued callback can still fire
+        // after this component is gone - a stale one calling reInit() post-unmount would create
+        // a second JustGage instance fighting the destroyed one over the same DOM id.
+        if (this.observer) {
+            this.observer.disconnect();
+            this.observer = undefined;
+        }
         if (this.gauge) {
             (this.gauge as any).destroy();
             this.gauge = undefined;
-        }
-        if (this.observer) {
-            this.observer.unobserve(this.ref.current);
         }
     }
 
@@ -77,6 +81,14 @@ export class Gauge extends TTComponent<GaugeProps, {}> {
     }
 
     private reInit() {
+        // The ResizeObserver also fires while the container is still mid-reflow at zero size
+        // (e.g. right when a new coil's column gets added to the telemetry grid) - creating a
+        // JustGage against a zero-size element leaves its internal Raphael state incomplete,
+        // and a later destroy()/refresh() against that broken instance throws. Skip and wait for
+        // the next observer callback, which fires again once the container has a real size.
+        if (!this.ref.current || this.ref.current.offsetHeight < 10 || this.ref.current.offsetWidth < 10) {
+            return;
+        }
         if (this.gauge) {
             (this.gauge as any).destroy();
         }

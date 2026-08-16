@@ -52,6 +52,11 @@ export class SimulatedConnection extends UD3Connection {
         broadcastSimulatedDevices();
         ipcs.meters(this.getCoil()).configure(0, 0, SIMULATED_BUS_VOLTAGE, 1, "Bus voltage");
         ipcs.meters(this.getCoil()).configure(1, 0, 999, 1, "MIDI notes received");
+        // Gauge (justgage) crashes if it's ever asked to render before a first value has been
+        // set for a configured meter - real coils always follow a GAUGE_CONF with a GAUGE value,
+        // so this only ever showed up here where the "MIDI notes received" meter otherwise sits
+        // at undefined until the first note arrives.
+        ipcs.meters(this.getCoil()).setValue(1, 0);
         this.pushState();
     }
 

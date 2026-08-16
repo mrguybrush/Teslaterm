@@ -37,6 +37,7 @@ export class Terminal extends TTComponent<TerminalProps, {}> {
     private readonly terminalDivRef: React.RefObject<HTMLDivElement>;
     private readonly fitter: FitAddon;
     private terminal?: xterm.Terminal;
+    private observer?: ResizeObserver;
 
     constructor(props: any) {
         super(props);
@@ -57,14 +58,26 @@ export class Terminal extends TTComponent<TerminalProps, {}> {
             this.terminal.open(this.terminalDivRef.current);
             this.fitManually();
             commands(this.props.coil).sendManualCommand('\rcls\r');
-            new ResizeObserver(() => this.fitManually()).observe(this.terminalDivRef.current);
+            this.observer = new ResizeObserver(() => this.fitManually());
+            this.observer.observe(this.terminalDivRef.current);
         }
     }
 
     public componentWillUnmount() {
         super.componentWillUnmount();
-        this.terminal.dispose();
-        this.terminal = undefined;
+        // The observer was never stored/disconnected before, so it kept firing fitManually()
+        // against a disposed (or, if this instance got remounted, a stale) terminal - when
+        // several coils' terminals mount in quick succession (as the coil simulation feature
+        // does), that races xterm's own resize handling and crashes deep inside xterm.js
+        // (Viewport.syncScrollArea reading .dimensions off a torn-down renderer).
+        if (this.observer) {
+            this.observer.disconnect();
+            this.observer = undefined;
+        }
+        if (this.terminal) {
+            this.terminal.dispose();
+            this.terminal = undefined;
+        }
     }
 
     private setupTerminal() {
