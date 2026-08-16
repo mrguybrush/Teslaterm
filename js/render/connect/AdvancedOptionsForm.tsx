@@ -34,7 +34,7 @@ export class AdvancedOptionsForm extends TTComponent<AdvancedFormProps, {}> {
     public render() {
         const mixerElement = (() => {
             if (this.props.showMixer) {
-                return <Form.Group key={'mixer'} style={{borderTop: 'solid'}}>
+                return <Form.Group key={'mixer'} style={{borderTop: '1px solid'}}>
                     {this.buildPhysicalMixerConfig()}
                 </Form.Group>;
             } else {
@@ -43,14 +43,13 @@ export class AdvancedOptionsForm extends TTComponent<AdvancedFormProps, {}> {
         })();
         return (
             <div className={'tt-advanced-settings'}>
-                <div className={'tt-advanced-settings-header'}>Advanced Settings</div>
-                <Form.Group key={'direct-midi'} style={{borderTop: 'solid'}}>
+                <Form.Group key={'direct-midi'} style={{borderTop: '1px solid'}}>
                     {this.buildDirectMIDIConfig()}
                 </Form.Group>
-                <Form.Group key={'netsid'} style={{borderTop: 'solid'}}>
+                <Form.Group key={'netsid'} style={{borderTop: '1px solid'}}>
                     {this.buildNetSIDConfig()}
                 </Form.Group>
-                <Form.Group key={'rtpmidi'} style={{borderTop: 'solid'}}>
+                <Form.Group key={'rtpmidi'} style={{borderTop: '1px solid'}}>
                     {this.buildRTPMIDIConfig()}
                 </Form.Group>
                 {mixerElement}
