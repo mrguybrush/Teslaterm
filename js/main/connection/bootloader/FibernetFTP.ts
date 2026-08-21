@@ -1,4 +1,5 @@
 import {Client} from "basic-ftp";
+import {FTPResponse, TaskResolver} from "basic-ftp/dist/FtpContext";
 import net from "net";
 import {promisify} from "util";
 import {withTimeout} from "../../helper";
@@ -53,9 +54,49 @@ async function sendFile(client: Client, data: number[], fileName: string) {
     await client.send(`PORT ${addressForPort},${Math.floor(dataPort / 256)},${dataPort % 256}`);
 
     const dataSocketPromise = getConnectingSocket(dataPort);
-    await client.send(`STOR ${fileName}`);
-    const dataSocket = await withTimeout(dataSocketPromise, 1000, 'Waiting for data connection');
-    await promisify((cb: () => any) => dataSocket.end(new Uint8Array(data), cb))();
+
+    // A STOR command gets two replies from a well-behaved FTP server: an initial "150 Opening
+    // data connection", and, once it has actually finished receiving and writing the file, a
+    // final 2xx ("226 Transfer complete"). Only waiting for the first one and then immediately
+    // moving on (as this used to) is a real race - the caller could send FLASH before Fibernet
+    // had actually finished writing the file to storage. basic-ftp's own uploadFrom() waits for
+    // both for exactly this documented reason (see TransferResolver in transfer.js); since active
+    // mode isn't supported by the library, that same "wait for both, in whichever order they
+    // arrive" logic is reimplemented here by hand for our manual data connection.
+    let dataSent = false;
+    let confirmed = false;
+    const upload = client.ftp.handle(`STOR ${fileName}`, (res: Error | FTPResponse, task: TaskResolver) => {
+        if (res instanceof Error) {
+            task.reject(res);
+            return;
+        }
+        if (res.code === 150 || res.code === 125) {
+            (async () => {
+                const dataSocket = await withTimeout(dataSocketPromise, 1000, 'Waiting for data connection');
+                await promisify((cb: () => any) => dataSocket.end(new Uint8Array(data), cb))();
+                dataSent = true;
+                if (confirmed) {
+                    task.resolve(res);
+                }
+            })().catch((e) => task.reject(e));
+            return;
+        }
+        if (res.code >= 200 && res.code < 300) {
+            confirmed = true;
+            if (dataSent) {
+                task.resolve(res);
+            }
+            return;
+        }
+        task.reject(new Error(`Unexpected FTP response to STOR: ${res.code} ${res.message}`));
+    });
+    // Not wrapped in withTimeout(): that helper only forwards the fulfilled case of the promise
+    // it wraps (base.then(res) with no rejection handler), so a real, specific rejection from the
+    // handler above would be silently swallowed and replaced by a generic "Timeout expired"
+    // message once the wrapper's own timer fires. FTPContext.handle() already applies the
+    // client's configured socket timeout to control-connection tasks and rejects properly on it,
+    // so awaiting the task directly gets both a real timeout *and* real error messages.
+    await upload;
 }
 
 async function getConnectingSocket(localPort: number) {
