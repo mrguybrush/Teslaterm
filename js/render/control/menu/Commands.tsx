@@ -1,5 +1,5 @@
 import React from "react";
-import {Button, Modal} from "react-bootstrap";
+import {Button, Modal, ProgressBar} from "react-bootstrap";
 import Dropdown from "react-bootstrap/Dropdown";
 import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN, IPCToMainKey} from "../../../common/IPCConstantsToMain";
 import {
@@ -23,6 +23,11 @@ interface CommandsState {
     originalSettings?: UD3ConfigOption[];
 
     alarmList?: UD3Alarm[];
+
+    showFirmwareModal?: boolean;
+    firmwareFileName?: string;
+    // undefined: no upload running. -1: running, no fine-grained progress available. 0-100: known progress.
+    firmwareProgress?: number;
 }
 
 export interface CommandsMenuProps {
@@ -43,6 +48,8 @@ export class CommandsMenuItem extends TTComponent<CommandsMenuProps, CommandsSta
             const channels = getToRenderIPCPerCoil(this.props.level.coil);
             this.addIPCListener(channels.udConfig, cfg => this.setState({originalSettings: cfg}));
             this.addIPCListener(channels.alarmList, alarmList => this.setState({alarmList}));
+            this.addIPCListener(channels.firmwarePicked, firmwareFileName => this.setState({firmwareFileName}));
+            this.addIPCListener(channels.firmwareProgress, firmwareProgress => this.setState({firmwareProgress}));
         }
     }
 
@@ -85,12 +92,21 @@ export class CommandsMenuItem extends TTComponent<CommandsMenuProps, CommandsSta
                 this.props.level.coil,
                 true,
             );
+            items.push(<Dropdown.Item
+                as={Button}
+                onClick={() => this.setState({showFirmwareModal: true})}
+                key={items.length}
+                disabled={this.props.disabled}
+            >
+                Firmware update...
+            </Dropdown.Item>);
         }
         return <>
             <TTDropdown title={'Commands'}>{items}</TTDropdown>
             {this.makeWarningModal()}
             {this.makeConfigModal()}
             {this.makeAlarmListModal()}
+            {this.makeFirmwareModal()}
         </>;
     }
 
@@ -179,6 +195,58 @@ export class CommandsMenuItem extends TTComponent<CommandsMenuProps, CommandsSta
             <Modal.Body>
                 <Alarms alarms={this.state.alarmList || []} close={close}/>
             </Modal.Body>
+        </Modal>;
+    }
+
+    private makeFirmwareModal() {
+        if (this.props.level.level === 'central-control') {
+            return <></>;
+        }
+        const coilIPC = getToMainIPCPerCoil(this.props.level.coil);
+        const uploading = this.state.firmwareProgress !== undefined;
+        const close = () => {
+            if (!uploading) {
+                this.setState({showFirmwareModal: false});
+            }
+        };
+        return <Modal show={this.state.showFirmwareModal ?? false} onHide={close}>
+            <Modal.Header closeButton={!uploading}>
+                <Modal.Title>Firmware update</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+                <p>
+                    Pick a <code>.cyacd</code> file to update the UD3's own firmware, or a{' '}
+                    <code>.hex</code> file to update Fibernet's firmware. Nothing is sent to the
+                    coil until you press Update below.
+                </p>
+                <Button
+                    variant={'secondary'}
+                    disabled={uploading}
+                    onClick={() => processIPC.send(coilIPC.commands.pickFirmwareFile, undefined)}
+                >
+                    Choose file...
+                </Button>
+                <div className={'tt-firmware-picked-file'}>
+                    {this.state.firmwareFileName ?? 'No file selected'}
+                </div>
+                {uploading && <ProgressBar
+                    className={'tt-firmware-progress'}
+                    now={this.state.firmwareProgress < 0 ? 100 : this.state.firmwareProgress}
+                    label={this.state.firmwareProgress < 0 ? undefined : `${this.state.firmwareProgress}%`}
+                    animated
+                    striped={this.state.firmwareProgress < 0}
+                />}
+            </Modal.Body>
+            <Modal.Footer>
+                <Button variant={'secondary'} onClick={close} disabled={uploading}>Cancel</Button>
+                <Button
+                    variant={'primary'}
+                    disabled={uploading || !this.state.firmwareFileName}
+                    onClick={() => processIPC.send(coilIPC.commands.confirmFirmwareUpload, undefined)}
+                >
+                    Update
+                </Button>
+            </Modal.Footer>
         </Modal>;
     }
 }

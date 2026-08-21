@@ -1,8 +1,8 @@
 import {CoilID} from "../../../common/constants";
 import {DroppedFile} from "../../../common/IPCConstantsToMain";
-import {ConnectionStatus, ToastSeverity} from "../../../common/IPCConstantsToRenderer";
+import {ConnectionStatus, getToRenderIPCPerCoil, ToastSeverity} from "../../../common/IPCConstantsToRenderer";
 import {sleep} from "../../helper";
-import {ipcs} from "../../ipc/IPCProvider";
+import {ipcs, processIPC} from "../../ipc/IPCProvider";
 import {BootloadableConnection} from "../bootloader/bootloadable_connection";
 import {Bootloader} from "../bootloader/bootloader";
 import {uploadFibernetFirmware, uploadUD3FirmwareFTP} from "../bootloader/FibernetFTP";
@@ -63,9 +63,12 @@ export class Bootloading implements IConnectionState {
     }
 
     private async bootload(file: number[]) {
+        this.setProgress(-1);
         try {
             const ftpAddress = this.connection.getFTPAddress();
             if (ftpAddress !== undefined) {
+                // The FTP path is a single blocking transfer with no per-chunk feedback, so there
+                // is nothing more precise to report here than "it's running".
                 await uploadUD3FirmwareFTP(ftpAddress, file);
             } else {
                 await this.bootloadDirectly(file);
@@ -74,9 +77,14 @@ export class Bootloading implements IConnectionState {
             ipcs.coilMisc(this.coil).openToast('Bootloader', 'Error while bootloading: ' + e, ToastSeverity.error);
             console.error(e);
         }
+        this.setProgress(undefined);
         if (this.inBootloadMode) {
             this.connection.leaveBootloaderMode();
         }
+    }
+
+    private setProgress(percentage: number | undefined) {
+        processIPC.send(getToRenderIPCPerCoil(this.coil).firmwareProgress, percentage);
     }
 
     private async bootloadDirectly(file: number[]) {
@@ -104,6 +112,7 @@ export class Bootloading implements IConnectionState {
                 }
             }
             terminal.print('| ' + percentage + '%');
+            this.setProgress(percentage);
         });
         ldr.set_write_cb((data) => {
             return this.connection.sendBootloaderData(data);
@@ -144,7 +153,12 @@ export async function handleBootloaderFileDrop(type: FirmwareFiletype, file: Dro
         const connection = coilState.getActiveConnection();
         if (connection instanceof BootloadableConnection && connection.getFTPAddress()) {
             bootloaderToast('Starting Fibernet firmware update', ToastSeverity.info);
-            await uploadFibernetFirmware(connection, file.bytes);
+            processIPC.send(getToRenderIPCPerCoil(coils[0]).firmwareProgress, -1);
+            try {
+                await uploadFibernetFirmware(connection, file.bytes);
+            } finally {
+                processIPC.send(getToRenderIPCPerCoil(coils[0]).firmwareProgress, undefined);
+            }
             bootloaderToast('Updated Fibernet firmware, reconnecting', ToastSeverity.info);
             setConnectionState(coils[0], coilState.makeConnectionLostState());
         } else {

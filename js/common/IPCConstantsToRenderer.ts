@@ -90,6 +90,11 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
     const makeCoilKey = <Type>(channel: string) => makeKey<Type>(channel + suffix);
     return {
         alarmList: makeCoilKey<UD3Alarm[]>('alarms'),
+        firmwarePicked: makeCoilKey<string | undefined>('firmware-picked'),
+        // undefined: no upload running. A number in [0, 100]: known progress. -1: running, but no
+        // fine-grained progress is available (the FTP-based upload path can't report partial
+        // progress - see FibernetFTP.ts).
+        firmwareProgress: makeCoilKey<number | undefined>('firmware-progress'),
         meters: {
             configure: makeCoilKey<MeterConfig>('meter-config'),
             setValue: makeCoilKey<SetMeters>('meter-set-value'),

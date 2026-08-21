@@ -1,6 +1,7 @@
 const path = require('path');
 
 module.exports = {
+	target: 'electron-renderer',
 	entry: './js/render/entry_browser.js',
 	devtool: 'inline-source-map',
 	output: {

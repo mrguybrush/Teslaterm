@@ -1,7 +1,8 @@
 import JSZip from "jszip";
 import {DroppedFile, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
+import {ToastSeverity} from "../../common/IPCConstantsToRenderer";
 import {getMixer, isMulticoil} from "../connection/connection";
-import {FirmwareFiletype, handleBootloaderFileDrop} from "../connection/state/Bootloading";
+import {FirmwareFiletype} from "../connection/state/Bootloading";
 import {isMediaFile} from "../media/media_player";
 import * as media_player from "../media/media_player";
 import {loadVMS} from "./block";
@@ -18,7 +19,14 @@ export class FileUploadIPC {
                 await ipcs.scripting.loadScript(loadedZip, scriptName);
             }
         } else if (extension === FirmwareFiletype.ud3 || extension === FirmwareFiletype.fibernet) {
-            await handleBootloaderFileDrop(extension, file);
+            // Deliberately not handled here anymore - firmware updates now go through
+            // Commands > Firmware update, which asks for confirmation before actually uploading
+            // anything to the coil.
+            ipcs.misc.openGenericToast(
+                'Bootloader',
+                'Use Commands > Firmware update to update firmware instead of dragging it in.',
+                ToastSeverity.warning,
+            );
         } else if (extension === "mcf") {
             loadVMS(file);
         } else {

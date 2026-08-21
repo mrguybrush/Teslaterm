@@ -108,6 +108,8 @@ export function getToMainIPCPerCoil(coil: CoilID) {
     const makeCoilKey = <Type>(channel: string) => makeKey<Type>(channel + suffix);
     return {
         commands: {
+            confirmFirmwareUpload: makeCoilKey<undefined>('confirm-firmware-upload'),
+            pickFirmwareFile: makeCoilKey<undefined>('pick-firmware-file'),
             saveEEPROM: makeCoilKey<undefined>('save-eeprom'),
             setBusState: makeCoilKey<boolean>('set-bus-state'),
             setKillState: makeCoilKey<boolean>('set-kill-state'),
