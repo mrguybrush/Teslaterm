@@ -132,6 +132,7 @@ export function getToMainIPCPerCoil(coil: CoilID) {
             setBPS: makeCoilKey<number>('slider-set-bps'),
             setBurstOfftime: makeCoilKey<number>('slider-set-burst-offtime'),
             setBurstOntime: makeCoilKey<number>('slider-set-burst-ontime'),
+            setMidiPolyphony: makeCoilKey<number>('slider-set-midi-polyphony'),
             setOntimeAbsolute: makeCoilKey<number>('slider-set-ontime-abs'),
             setVolumeFraction: makeKey<number>('slider-volume-fraction'),
         },

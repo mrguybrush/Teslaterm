@@ -221,6 +221,9 @@ export interface ISliderState {
     readonly maxOntime: number;
     readonly maxBPS: number;
     readonly volumeFraction: number;
+    // Maximum number of MIDI notes allowed to sound at once, 0 = unlimited. Host-side only, the
+    // UD3 is never told about this.
+    readonly midiPolyphony: number;
 }
 
 export interface IUDPConnectionSuggestion {

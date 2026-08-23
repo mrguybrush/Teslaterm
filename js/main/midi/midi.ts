@@ -8,6 +8,7 @@ import {Connected} from "../connection/state/Connected";
 import {ipcs} from "../ipc/IPCProvider";
 import {checkTransientDisabled, media_state, notifySongEnded} from "../media/media_player";
 import * as scripting from "../scripting";
+import {MidiPolyphonyLimiter} from "./MidiPolyphonyLimiter";
 import {maybeRedirectEvent} from "./MidiRedirector";
 
 export const kill_msg = Buffer.of(0xB0, 0x78, 0x00);
@@ -218,11 +219,25 @@ export async function playMidiEvent(event: MidiPlayer.Event): Promise<boolean> {
     }
 }
 
+const polyphonyLimiters = new Map<CoilID, MidiPolyphonyLimiter>();
+
+function limiterFor(coil: CoilID): MidiPolyphonyLimiter {
+    let limiter = polyphonyLimiters.get(coil);
+    if (!limiter) {
+        limiter = new MidiPolyphonyLimiter();
+        polyphonyLimiters.set(coil, limiter);
+    }
+    return limiter;
+}
+
 export async function playMidiDataOn(coil: CoilID, data: number[] | Uint8Array): Promise<void> {
     await checkTransientDisabled(coil);
     const connectionState = getConnectionState(coil);
     if (connectionState instanceof Connected) {
-        await connectionState.sendMIDI(Buffer.from(data));
+        const messages = limiterFor(coil).filter(data, ipcs.sliders(coil).midiPolyphony);
+        for (const message of messages) {
+            await connectionState.sendMIDI(Buffer.from(message));
+        }
     }
 }
 

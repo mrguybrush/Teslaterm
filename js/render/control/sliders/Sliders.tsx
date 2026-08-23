@@ -32,6 +32,7 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
             controllingRelativeOntime: false,
             maxBPS: 1000,
             maxOntime: 400,
+            midiPolyphony: 0,
             onlyMaxOntimeSettable: false,
             ontimeAbs: 0,
             ontimeRel: this.props.level.level === 'central-control' ? 0 : 100,
@@ -182,6 +183,19 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                 visuallyEnabled={trOn}
                 disabled={this.props.disabled || this.state.onlyMaxOntimeSettable}
             />
+            {this.props.enableMIDI && coilIPC && <SimpleSlider
+                title={'MIDI voices'}
+                unit={this.state.midiPolyphony === 0 ? '(off)' : 'max'}
+                value={this.state.midiPolyphony}
+                min={0}
+                max={6}
+                setValue={(v) => {
+                    this.setState({midiPolyphony: v});
+                    processIPC.send(coilIPC.sliders.setMidiPolyphony, v);
+                }}
+                visuallyEnabled={true}
+                disabled={this.props.disabled}
+            />}
             {this.props.enableMIDI && <MidiSourceSelect coil={coil}/>}
         </div>;
     }

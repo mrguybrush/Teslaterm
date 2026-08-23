@@ -29,6 +29,8 @@ export class SliderState {
     public onlyMaxOntimeSettable: boolean = false;
     public maxOntime: number = 400;
     public maxBPS: number = 1000;
+    // 0 = off, i.e. every note is forwarded and the UD3 does its own voice allocation.
+    public midiPolyphony: number = 0;
 
     constructor(multicoil: boolean) {
         this.ontimeAbs = multicoil ? this.maxOntime : 0;
@@ -79,6 +81,7 @@ export class SlidersIPC {
         this.addDelayedListener(channels.sliders.setBPS, (bps) => this.setBPS(bps));
         this.addDelayedListener(channels.sliders.setBurstOntime, (bon) => this.setBurstOntime(bon));
         this.addDelayedListener(channels.sliders.setBurstOfftime, (boff) => this.setBurstOfftime(boff));
+        this.addDelayedListener(channels.sliders.setMidiPolyphony, (max) => this.setMidiPolyphony(max));
     }
 
     public tick100() {
@@ -102,6 +105,17 @@ export class SlidersIPC {
 
     public get burstOfftime() {
         return this.state.burstOfftime;
+    }
+
+    public get midiPolyphony() {
+        return this.state.midiPolyphony;
+    }
+
+    // Purely a host-side playback filter (see midi.ts), so unlike the other sliders this one has
+    // no matching UD3 command to send.
+    public setMidiPolyphony(val: number) {
+        this.state.midiPolyphony = val;
+        this.sendSliderSync();
     }
 
     public async setAbsoluteOntime(val: number) {
