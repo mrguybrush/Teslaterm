@@ -24,6 +24,14 @@ export interface MidiPlaylistPanelProps {
 
 const MAX_UD3_VOICES = 6;
 
+// This panel is unmounted and rebuilt every time another bottom panel is selected, so anything
+// kept in component state resets on a tab switch. For these two that was actively harmful:
+// previewMode springing back to "preview locally" left the UI showing and controlling the local
+// preview player while the coil kept playing from the main process - the song vanished from the
+// now-playing bar and Stop no longer stopped it. Module scope outlives the remount.
+let persistedPreviewMode = true;
+let persistedAutoPlay = true;
+
 const SIMPLIFY_ALGORITHMS: Array<{ id: MidiSimplifyAlgorithm, label: string, description: string }> = [
     {
         description: 'Keeps only the highest-pitched note at any moment - works well when the melody is the top voice.',
@@ -55,6 +63,8 @@ interface MidiPlaylistPanelState {
     saveDialogName: string;
     simplifyTarget?: string;
     midiPolyphony: number;
+    notesRequested: number;
+    notesForwarded: number;
 }
 
 type DragSource = 'library' | 'playlist';
@@ -113,12 +123,14 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
     constructor(props: MidiPlaylistPanelProps) {
         super(props);
         this.state = {
-            autoPlay: true,
+            autoPlay: persistedAutoPlay,
             coilState: EMPTY_PLAYER_STATE,
             library: [],
             midiPolyphony: 0,
+            notesForwarded: 0,
+            notesRequested: 0,
             playlist: [],
-            previewMode: true,
+            previewMode: persistedPreviewMode,
             previewState: EMPTY_PLAYER_STATE,
             saveDialogName: '',
             savedPlaylists: [],
@@ -166,6 +178,10 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         this.addIPCListener(
             getToRenderIPCPerCoil(this.props.coil).sliders.syncSettings,
             (sync) => this.setState({midiPolyphony: sync.midiPolyphony}),
+        );
+        this.addIPCListener(
+            getToRenderIPCPerCoil(this.props.coil).midiNoteCounts,
+            ([notesRequested, notesForwarded]) => this.setState({notesForwarded, notesRequested}),
         );
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
@@ -252,14 +268,20 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         ? 'Preview locally (not sent to the coil)'
                         : 'Sending to the coil'}
                     checked={this.state.previewMode}
-                    onChange={(ev) => this.setState({previewMode: ev.target.checked})}
+                    onChange={(ev) => {
+                        persistedPreviewMode = ev.target.checked;
+                        this.setState({previewMode: ev.target.checked});
+                    }}
                 />
                 <Form.Check
                     type={'checkbox'}
                     id={'midi-auto-play'}
                     label={'Auto-play next in playlist'}
                     checked={this.state.autoPlay}
-                    onChange={(ev) => this.setState({autoPlay: ev.target.checked})}
+                    onChange={(ev) => {
+                        persistedAutoPlay = ev.target.checked;
+                        this.setState({autoPlay: ev.target.checked});
+                    }}
                 />
                 {this.makePolyphonyLimitControl()}
             </div>
@@ -484,6 +506,12 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             >
                 {options}
             </Form.Select>
+            <span
+                className={'tt-midi-note-counter'}
+                title={'Notes the file wants to play right now → notes actually sent to the coil'}
+            >
+                {this.state.notesRequested} → {this.state.notesForwarded}
+            </span>
         </div>;
     }
 
@@ -580,6 +608,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             return;
         }
         if (!this.state.autoPlay) {
+            persistedAutoPlay = true;
             this.setState({autoPlay: true});
         }
         this.playPlaylistEntry(0);

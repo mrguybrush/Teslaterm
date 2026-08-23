@@ -31,6 +31,19 @@ export class MidiPolyphonyLimiter {
     // otherwise it would reach the UD3 without a matching Note-On and could stop an unrelated
     // note that reused the same voice.
     private readonly dropped = new Set<number>();
+    // Everything the source wanted to play, whether it was forwarded or not - only used to show
+    // "incoming vs. actually sent" in the UI.
+    private readonly requested = new Set<number>();
+
+    /** Notes currently forwarded to the coil. */
+    public get forwardedCount(): number {
+        return this.sounding.size;
+    }
+
+    /** Notes the MIDI source currently wants to play, before limiting. */
+    public get requestedCount(): number {
+        return this.requested.size;
+    }
 
     /**
      * @param limit maximum notes allowed to sound at once, 0 or less to forward everything
@@ -53,6 +66,7 @@ export class MidiPolyphonyLimiter {
         const key = noteKey(channel, note);
         // A Note-On with velocity 0 means Note-Off - very common in files using running status.
         if (status === MIDI_NOTE_OFF || data[2] === 0) {
+            this.requested.delete(key);
             this.sounding.delete(key);
             if (this.dropped.delete(key)) {
                 return [];
@@ -60,6 +74,7 @@ export class MidiPolyphonyLimiter {
             return [data];
         }
 
+        this.requested.add(key);
         if (limit <= 0 || this.sounding.has(key) || this.sounding.size < limit) {
             this.dropped.delete(key);
             this.sounding.add(key);
@@ -96,6 +111,7 @@ export class MidiPolyphonyLimiter {
     public reset() {
         this.sounding.clear();
         this.dropped.clear();
+        this.requested.clear();
     }
 }
 

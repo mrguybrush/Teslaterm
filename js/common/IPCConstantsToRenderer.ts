@@ -109,6 +109,9 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
         sliders: {
             syncSettings: makeCoilKey<ISliderState>('slider-sync'),
         },
+        // [notes the MIDI source wants, notes actually forwarded to the coil] - lets the UI show
+        // what the polyphony limit is really doing.
+        midiNoteCounts: makeCoilKey<[number, number]>('midi-note-counts'),
         configList: makeCoilKey<UD3ConfigOption[]>('config-list'),
         singleConfigValue: makeCoilKey<UD3ConfigOption>('single-config-value'),
         terminal: makeCoilKey<string>('terminal'),
