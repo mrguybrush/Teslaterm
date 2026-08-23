@@ -82,6 +82,7 @@ export class SlidersIPC {
         this.addDelayedListener(channels.sliders.setBurstOntime, (bon) => this.setBurstOntime(bon));
         this.addDelayedListener(channels.sliders.setBurstOfftime, (boff) => this.setBurstOfftime(boff));
         this.addDelayedListener(channels.sliders.setMidiPolyphony, (max) => this.setMidiPolyphony(max));
+        this.processIPC.on(channels.sliders.requestSync, () => this.sendSliderSync());
     }
 
     public tick100() {
@@ -179,7 +180,12 @@ export class SlidersIPC {
     }
 
     public reinitState(multicoil: boolean) {
+        // Unlike ontime/BPS, which deliberately start from a safe default on every connect, the
+        // polyphony cap is a host-side playback preference - silently dropping it back to
+        // "unlimited" on reconnect would quietly undo what the user set.
+        const midiPolyphony = this.state?.midiPolyphony ?? 0;
         this.state = new SliderState(multicoil);
+        this.state.midiPolyphony = midiPolyphony;
         this.multicoil = multicoil;
         this.sendSliderSync();
     }
