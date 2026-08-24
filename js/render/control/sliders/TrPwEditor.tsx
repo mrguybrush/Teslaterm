@@ -42,7 +42,19 @@ export class TrPwEditor extends TTComponent<TrPwEditorProps, TrPwEditorState> {
         });
         // requestConfig() now has a timeout safety net (see TelemetryFrame.ts), so an
         // auto-load on mount can no longer permanently stall the shared config queue.
-        this.requestValue();
+        if (!this.props.disabled) {
+            this.requestValue();
+        }
+    }
+
+    // The menu (and with it this field) is already on screen while the coil is still connecting,
+    // so the mount-time request above happens before the UD3 can answer and the field stays empty
+    // until "Load" is pressed by hand. Asking again the moment the coil becomes interactive is
+    // what actually fills it in on connect.
+    public componentDidUpdate(prevProps: TrPwEditorProps) {
+        if (prevProps.disabled && !this.props.disabled) {
+            this.requestValue();
+        }
     }
 
     public componentWillUnmount() {

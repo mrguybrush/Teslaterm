@@ -109,9 +109,6 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
         sliders: {
             syncSettings: makeCoilKey<ISliderState>('slider-sync'),
         },
-        // [notes the MIDI source wants, notes actually forwarded to the coil] - lets the UI show
-        // what the polyphony limit is really doing.
-        midiNoteCounts: makeCoilKey<[number, number]>('midi-note-counts'),
         configList: makeCoilKey<UD3ConfigOption[]>('config-list'),
         singleConfigValue: makeCoilKey<UD3ConfigOption>('single-config-value'),
         terminal: makeCoilKey<string>('terminal'),
@@ -224,9 +221,6 @@ export interface ISliderState {
     readonly maxOntime: number;
     readonly maxBPS: number;
     readonly volumeFraction: number;
-    // Maximum number of MIDI notes allowed to sound at once, 0 = unlimited. Host-side only, the
-    // UD3 is never told about this.
-    readonly midiPolyphony: number;
 }
 
 export interface IUDPConnectionSuggestion {

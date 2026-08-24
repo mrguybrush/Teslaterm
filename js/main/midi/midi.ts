@@ -1,14 +1,13 @@
 import * as MidiPlayer from "midi-player-js";
 import {CoilID} from "../../common/constants";
-import {ChannelID, getToRenderIPCPerCoil} from "../../common/IPCConstantsToRenderer";
+import {ChannelID} from "../../common/IPCConstantsToRenderer";
 import {MediaFileType, PlayerActivity} from "../../common/MediaTypes";
 import {MidiPlaybackState, MidiPlayerState} from "../../common/MidiPlaylistTypes";
 import {forEachCoil, forEachCoilAsync, getConnectionState, hasUD3Connection} from "../connection/connection";
 import {Connected} from "../connection/state/Connected";
-import {ipcs, processIPC} from "../ipc/IPCProvider";
+import {ipcs} from "../ipc/IPCProvider";
 import {checkTransientDisabled, media_state, notifySongEnded} from "../media/media_player";
 import * as scripting from "../scripting";
-import {MidiPolyphonyLimiter} from "./MidiPolyphonyLimiter";
 import {maybeRedirectEvent} from "./MidiRedirector";
 
 export const kill_msg = Buffer.of(0xB0, 0x78, 0x00);
@@ -219,36 +218,11 @@ export async function playMidiEvent(event: MidiPlayer.Event): Promise<boolean> {
     }
 }
 
-const polyphonyLimiters = new Map<CoilID, MidiPolyphonyLimiter>();
-
-function limiterFor(coil: CoilID): MidiPolyphonyLimiter {
-    let limiter = polyphonyLimiters.get(coil);
-    if (!limiter) {
-        limiter = new MidiPolyphonyLimiter();
-        polyphonyLimiters.set(coil, limiter);
-    }
-    return limiter;
-}
-
-// Pushed to the UI on a timer rather than per note - notes arrive far too fast to send an IPC
-// message for each one.
-export function sendMidiNoteCounts() {
-    for (const [coil, limiter] of polyphonyLimiters) {
-        processIPC.send(
-            getToRenderIPCPerCoil(coil).midiNoteCounts,
-            [limiter.requestedCount, limiter.forwardedCount],
-        );
-    }
-}
-
 export async function playMidiDataOn(coil: CoilID, data: number[] | Uint8Array): Promise<void> {
     await checkTransientDisabled(coil);
     const connectionState = getConnectionState(coil);
     if (connectionState instanceof Connected) {
-        const messages = limiterFor(coil).filter(data, ipcs.sliders(coil).midiPolyphony);
-        for (const message of messages) {
-            await connectionState.sendMIDI(Buffer.from(message));
-        }
+        await connectionState.sendMIDI(Buffer.from(data));
     }
 }
 

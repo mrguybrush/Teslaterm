@@ -29,8 +29,6 @@ export class SliderState {
     public onlyMaxOntimeSettable: boolean = false;
     public maxOntime: number = 400;
     public maxBPS: number = 1000;
-    // 0 = off, i.e. every note is forwarded and the UD3 does its own voice allocation.
-    public midiPolyphony: number = 0;
 
     constructor(multicoil: boolean) {
         this.ontimeAbs = multicoil ? this.maxOntime : 0;
@@ -81,8 +79,6 @@ export class SlidersIPC {
         this.addDelayedListener(channels.sliders.setBPS, (bps) => this.setBPS(bps));
         this.addDelayedListener(channels.sliders.setBurstOntime, (bon) => this.setBurstOntime(bon));
         this.addDelayedListener(channels.sliders.setBurstOfftime, (boff) => this.setBurstOfftime(boff));
-        this.addDelayedListener(channels.sliders.setMidiPolyphony, (max) => this.setMidiPolyphony(max));
-        this.processIPC.on(channels.sliders.requestSync, () => this.sendSliderSync());
     }
 
     public tick100() {
@@ -106,17 +102,6 @@ export class SlidersIPC {
 
     public get burstOfftime() {
         return this.state.burstOfftime;
-    }
-
-    public get midiPolyphony() {
-        return this.state.midiPolyphony;
-    }
-
-    // Purely a host-side playback filter (see midi.ts), so unlike the other sliders this one has
-    // no matching UD3 command to send.
-    public setMidiPolyphony(val: number) {
-        this.state.midiPolyphony = val;
-        this.sendSliderSync();
     }
 
     public async setAbsoluteOntime(val: number) {
@@ -180,12 +165,7 @@ export class SlidersIPC {
     }
 
     public reinitState(multicoil: boolean) {
-        // Unlike ontime/BPS, which deliberately start from a safe default on every connect, the
-        // polyphony cap is a host-side playback preference - silently dropping it back to
-        // "unlimited" on reconnect would quietly undo what the user set.
-        const midiPolyphony = this.state?.midiPolyphony ?? 0;
         this.state = new SliderState(multicoil);
-        this.state.midiPolyphony = midiPolyphony;
         this.multicoil = multicoil;
         this.sendSliderSync();
     }

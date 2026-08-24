@@ -131,7 +131,7 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                             coil={this.props.coil}
                         />}
                         {bottomPanel === BottomPanelMode.midi_playlist &&
-                            <MidiPlaylistPanel disabled={!this.props.allowInteraction} coil={this.props.coil}/>}
+                            <MidiPlaylistPanel disabled={!this.props.allowInteraction}/>}
                         <PianoPanel
                             disabled={!this.props.allowInteraction}
                             active={this.state.pianoActive}

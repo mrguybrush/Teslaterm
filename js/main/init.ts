@@ -25,7 +25,6 @@ function tick200() {
 function tick100() {
     ipcs.tick100();
     getMixer()?.tick100();
-    midi.sendMidiNoteCounts();
 }
 
 function tick20() {

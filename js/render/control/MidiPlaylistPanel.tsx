@@ -1,9 +1,8 @@
 import React from "react";
 import {Button, ButtonGroup, Form, Modal} from "react-bootstrap";
 import {PauseFill, PlayFill, StopFill} from "react-bootstrap-icons";
-import {CoilID} from "../../common/constants";
-import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
-import {getToRenderIPCPerCoil, IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
+import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
+import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {
     MidiLibraryEntry,
     MidiPlaybackState,
@@ -19,10 +18,7 @@ import {formatDuration, MidiTimeline} from "./MidiTimeline";
 
 export interface MidiPlaylistPanelProps {
     disabled: boolean;
-    coil: CoilID;
 }
-
-const MAX_UD3_VOICES = 6;
 
 // This panel is unmounted and rebuilt every time another bottom panel is selected, so anything
 // kept in component state resets on a tab switch. For these two that was actively harmful:
@@ -62,9 +58,6 @@ interface MidiPlaylistPanelState {
     showSaveDialog: boolean;
     saveDialogName: string;
     simplifyTarget?: string;
-    midiPolyphony: number;
-    notesRequested: number;
-    notesForwarded: number;
 }
 
 type DragSource = 'library' | 'playlist';
@@ -126,9 +119,6 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             autoPlay: persistedAutoPlay,
             coilState: EMPTY_PLAYER_STATE,
             library: [],
-            midiPolyphony: 0,
-            notesForwarded: 0,
-            notesRequested: 0,
             playlist: [],
             previewMode: persistedPreviewMode,
             previewState: EMPTY_PLAYER_STATE,
@@ -175,20 +165,9 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             () => this.onSongEnded(true),
             (index, inPointSeconds, outPointSeconds) => this.persistInOut(index, inPointSeconds, outPointSeconds),
         );
-        this.addIPCListener(
-            getToRenderIPCPerCoil(this.props.coil).sliders.syncSettings,
-            (sync) => this.setState({midiPolyphony: sync.midiPolyphony}),
-        );
-        this.addIPCListener(
-            getToRenderIPCPerCoil(this.props.coil).midiNoteCounts,
-            ([notesRequested, notesForwarded]) => this.setState({notesForwarded, notesRequested}),
-        );
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestLibrary, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestPlaylist, undefined);
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.requestSavedPlaylists, undefined);
-        // This panel is unmounted whenever another bottom panel is selected, so it misses the
-        // syncs sent while it was gone - ask for the current value instead of showing a stale one.
-        processIPC.send(getToMainIPCPerCoil(this.props.coil).sliders.requestSync, undefined);
         // This component only mounts while the MIDI Playlist tab is the active bottom panel (see
         // SingleCoilTab's conditional render), so a window-level listener here is naturally scoped
         // to "shortcuts active while this tab is visible" without needing extra focus tracking.
@@ -283,7 +262,6 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                         this.setState({autoPlay: ev.target.checked});
                     }}
                 />
-                {this.makePolyphonyLimitControl()}
             </div>
             {this.makeNowPlaying()}
             <div className={'tt-midi-lists'}>
@@ -479,39 +457,6 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                     ? this.previewPlayer.setOutPoint(s)
                     : processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.setOutPoint, s)}
             />
-        </div>;
-    }
-
-    // Caps how many notes are forwarded to the coil at once. The UD3 only has 6 voices, and once
-    // they are all busy it silences its oldest note instantly, with no release envelope - staying
-    // below that keeps notes from being chopped off, and thins out the pulse collisions that make
-    // dense multi-track files sound rough. Applies to playlist playback and live MIDI input alike.
-    private makePolyphonyLimitControl() {
-        const options = [<option key={0} value={0}>Off</option>];
-        for (let i = 1; i <= MAX_UD3_VOICES; i++) {
-            options.push(<option key={i} value={i}>{i}</option>);
-        }
-        return <div className={'tt-midi-polyphony-limit'}>
-            <span title={'The UD3 has 6 voices. Limiting notes here avoids its hard voice stealing.'}>
-                Max. notes at once:
-            </span>
-            <Form.Select
-                size={'sm'}
-                value={this.state.midiPolyphony}
-                onChange={(ev) => {
-                    const value = Number(ev.target.value);
-                    this.setState({midiPolyphony: value});
-                    processIPC.send(getToMainIPCPerCoil(this.props.coil).sliders.setMidiPolyphony, value);
-                }}
-            >
-                {options}
-            </Form.Select>
-            <span
-                className={'tt-midi-note-counter'}
-                title={'Notes the file wants to play right now → notes actually sent to the coil'}
-            >
-                {this.state.notesRequested} → {this.state.notesForwarded}
-            </span>
         </div>;
     }
 

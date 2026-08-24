@@ -32,7 +32,6 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
             controllingRelativeOntime: false,
             maxBPS: 1000,
             maxOntime: 400,
-            midiPolyphony: 0,
             onlyMaxOntimeSettable: false,
             ontimeAbs: 0,
             ontimeRel: this.props.level.level === 'central-control' ? 0 : 100,
