@@ -213,6 +213,9 @@ export interface ConfirmationRequest {
 
 export interface ISliderState {
     readonly ontimeAbs: number;
+    // Tenths of a microsecond, added on top of ontimeAbs. Only firmware that stores pw with a
+    // decimal place resolves this; older firmware rounds it away.
+    readonly ontimeFine: number;
     readonly ontimeRel: number;
     readonly bps: number;
     readonly burstOntime: number;

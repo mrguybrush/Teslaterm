@@ -22,6 +22,9 @@ export async function setRelativeOntime(newRelative: number) {
 
 export class SliderState {
     public ontimeAbs: number;
+    // Tenths of a microsecond on top of ontimeAbs, so the ontime can be trimmed below the 1us
+    // step of the main slider. Firmware without a fractional pw parameter rounds it away.
+    public ontimeFine: number = 0;
     public volumeFraction: number = 1;
     public bps: number = 20;
     public burstOntime: number = 500;
@@ -35,7 +38,7 @@ export class SliderState {
     }
 
     public get ontime() {
-        return this.ontimeAbs * relativeOntime / 100;
+        return (this.ontimeAbs + this.ontimeFine / 10) * relativeOntime / 100;
     }
 
     public updateRanges(maxOntime: number, maxBPS: number): boolean {
@@ -75,6 +78,7 @@ export class SlidersIPC {
         this.commands = getCoilCommands(coil);
         const channels = getToMainIPCPerCoil(coil);
         this.addDelayedListener(channels.sliders.setOntimeAbsolute, (ot) => this.setAbsoluteOntime(ot));
+        this.addDelayedListener(channels.sliders.setOntimeFine, (ot) => this.setFineOntime(ot));
         this.addDelayedListener(channels.sliders.setVolumeFraction, (vol) => this.setVolume(vol));
         this.addDelayedListener(channels.sliders.setBPS, (bps) => this.setBPS(bps));
         this.addDelayedListener(channels.sliders.setBurstOntime, (bon) => this.setBurstOntime(bon));
@@ -106,6 +110,12 @@ export class SlidersIPC {
 
     public async setAbsoluteOntime(val: number) {
         this.state.ontimeAbs = val;
+        await this.commands.setOntime(this.state.ontime);
+        this.sendSliderSync();
+    }
+
+    public async setFineOntime(val: number) {
+        this.state.ontimeFine = val;
         await this.commands.setOntime(this.state.ontime);
         this.sendSliderSync();
     }

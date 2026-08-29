@@ -133,6 +133,7 @@ export function getToMainIPCPerCoil(coil: CoilID) {
             setBurstOfftime: makeCoilKey<number>('slider-set-burst-offtime'),
             setBurstOntime: makeCoilKey<number>('slider-set-burst-ontime'),
             setOntimeAbsolute: makeCoilKey<number>('slider-set-ontime-abs'),
+            setOntimeFine: makeCoilKey<number>('slider-set-ontime-fine'),
             setVolumeFraction: makeKey<number>('slider-volume-fraction'),
         },
     };

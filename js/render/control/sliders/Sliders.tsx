@@ -8,7 +8,7 @@ import {CommandButtons} from "../menu/CommandButtons";
 import {TabControlLevelBase} from "../SingleCoilTab";
 import {MidiSourceSelect} from "./MidiSourceSelect";
 import {OntimeSlider} from './OntimeSlider';
-import {SimpleSlider} from './SimpleSlider';
+import {SimpleSlider, SimpleSliderFixedTitle} from './SimpleSlider';
 
 export interface SlidersProps {
     disabled: boolean;
@@ -34,6 +34,7 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
             maxOntime: 400,
             onlyMaxOntimeSettable: false,
             ontimeAbs: 0,
+            ontimeFine: 0,
             ontimeRel: this.props.level.level === 'central-control' ? 0 : 100,
             volumeFraction: 1,
         };
@@ -141,6 +142,24 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                 controllingRelative={this.state.controllingRelativeOntime}
                 setControllingRelative={b => this.setState({controllingRelativeOntime: b})}
                 level={this.props.level}
+            />
+            <SimpleSliderFixedTitle
+                // The slider itself counts in tenths so the range input keeps its step of 1; only
+                // the title shows microseconds.
+                title={'Ontime fine: +' + (this.state.ontimeFine / 10).toFixed(1) + ' µs (total ' +
+                    ((this.state.ontimeAbs + this.state.ontimeFine / 10) * this.state.ontimeRel / 100).toFixed(1) +
+                    ' µs)'}
+                value={this.state.ontimeFine}
+                min={0}
+                max={9}
+                setValue={(tenths) => {
+                    this.setState({ontimeFine: tenths});
+                    if (coilIPC) {
+                        processIPC.send(coilIPC.sliders.setOntimeFine, tenths);
+                    }
+                }}
+                visuallyEnabled={busOn}
+                disabled={this.props.disabled || !coilIPC}
             />
             <SimpleSlider
                 title={'BPS'}
