@@ -5,6 +5,7 @@ import {ConnectionStatus, IUD3State} from "../../common/IPCConstantsToRenderer";
 import {TTConfig} from "../../common/TTConfig";
 import {SyncedUIConfig} from "../../common/UIConfig";
 import {TTComponent} from "../TTComponent";
+import {GDTPanel} from "./GDTPanel";
 import {Gauges} from "./gauges/Gauges";
 import {MenuBar} from "./menu/Menu";
 import {MidiPlaylistPanel} from "./MidiPlaylistPanel";
@@ -40,6 +41,7 @@ enum BottomPanelMode {
     midi_playlist,
     piano,
     frequency,
+    gdt,
     debug,
     none,
 }
@@ -112,6 +114,13 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                                 Frequency
                             </Button>
                             <Button
+                                variant={bottomPanel === BottomPanelMode.gdt ? 'primary' : 'secondary'}
+                                size={'sm'}
+                                onClick={() => this.setState({bottomPanel: BottomPanelMode.gdt})}
+                            >
+                                GDT
+                            </Button>
+                            <Button
                                 variant={bottomPanel === BottomPanelMode.debug ? 'primary' : 'secondary'}
                                 size={'sm'}
                                 onClick={() => this.setState({bottomPanel: BottomPanelMode.debug})}
@@ -141,6 +150,7 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                         />
                         {bottomPanel === BottomPanelMode.frequency &&
                             <FrequencyScopePanel coil={this.props.coil}/>}
+                        <GDTPanel coil={this.props.coil} visible={bottomPanel === BottomPanelMode.gdt}/>
                         {bottomPanel === BottomPanelMode.debug &&
                             <TelemetryDebugPanel coil={this.props.coil}/>}
                     </div>

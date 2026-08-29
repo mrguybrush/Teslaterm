@@ -126,3 +126,12 @@
 .tt-tabs-body-inner {
     height: 100%;
 }
+
+/* GDT panel: the switching times the UD3 reports back, drawn as a gate drive pair */
+.tt-gdt-grid        { stroke: rgba(128,128,128,.28); stroke-width: 1; }
+.tt-gdt-axis        { fill: #9a9a9a; font-family: monospace; font-size: 10px; }
+.tt-gdt-label       { fill: #c8c8c8; font-family: monospace; font-size: 12px; font-weight: 600; }
+.tt-gdt-burst       { fill: rgba(90,150,255,.10); }
+.tt-gdt-trace       { fill: none; stroke: #5a96ff; stroke-width: 2; stroke-linejoin: miter; }
+.tt-gdt-cursor      { stroke: #ffb300; stroke-width: 1; stroke-dasharray: 3 3; }
+.tt-gdt-cursor-text { fill: #ffb300; font-family: monospace; font-size: 11px; }
