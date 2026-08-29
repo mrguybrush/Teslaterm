@@ -92,6 +92,9 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
     if (object.autoFlightRecording === undefined) {
         object.autoFlightRecording = false;
     }
+    if (object.recordVideo === undefined) {
+        object.recordVideo = false;
+    }
     if (object.windowWidth === undefined) {
         object.windowWidth = 1800;
     }

@@ -2,7 +2,8 @@ import {dialog} from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
-import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
+import {FlightVideoMeta, videoMetaPathForSession, videoPathForSession} from "../../common/FlightVideoPaths";
+import {FRFullListPayload, IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {
     parseEventsForDisplay,
     parseEventsFromFile,
@@ -43,18 +44,22 @@ export class FlightRecorderIPC {
         this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionList, listSessions());
     }
 
-    private async loadRecording(data: Buffer) {
+    private async loadRecording(data: Buffer, sessionFilename?: string) {
         const [flightEvents, initialState] = await parseEventsFromFile(data);
         const minEvents = parseMINEvents(flightEvents);
         const displayEvents = parseEventsForDisplay(minEvents, false);
-        this.processIPC.send(
-            IPC_CONSTANTS_TO_RENDERER.flightRecorder.fullList, {events: displayEvents, initial: initialState},
-        );
+        const payload: FRFullListPayload = {events: displayEvents, initial: initialState};
+        // Only sessions opened from the session list can have a video: a recording dropped in as a
+        // bare zip has no known location to look next to.
+        if (sessionFilename) {
+            Object.assign(payload, readVideoInfo(sessionFilename));
+        }
+        this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.flightRecorder.fullList, payload);
     }
 
     private async openSession(filename: string) {
         const data = await fs.promises.readFile(filename);
-        await this.loadRecording(data);
+        await this.loadRecording(data, filename);
     }
 
     private deleteSession(filename: string) {
@@ -70,5 +75,23 @@ export class FlightRecorderIPC {
         if (!result.canceled && result.filePath) {
             await fs.promises.copyFile(filename, result.filePath);
         }
+    }
+}
+
+function readVideoInfo(sessionFilename: string): Partial<FRFullListPayload> {
+    const videoPath = videoPathForSession(sessionFilename);
+    if (!fs.existsSync(videoPath)) {
+        return {};
+    }
+    try {
+        const meta: FlightVideoMeta = JSON.parse(
+            fs.readFileSync(videoMetaPathForSession(sessionFilename), {encoding: 'utf-8'}),
+        );
+        return {videoPath, videoStartEpochMs: meta.startEpochMs};
+    } catch (e) {
+        // Without the sidecar there is no way to line the video up with the telemetry timeline,
+        // and showing it unsynchronised would be worse than not showing it at all.
+        console.warn('Flight session has a video but no usable metadata', sessionFilename, e);
+        return {};
     }
 }

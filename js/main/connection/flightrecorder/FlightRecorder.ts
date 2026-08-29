@@ -7,8 +7,9 @@ import {
     FlightSessionInfo,
     FR_HEADER_BYTES,
 } from "../../../common/FlightRecorderTypes";
-import {ToastSeverity} from "../../../common/IPCConstantsToRenderer";
-import {ipcs} from "../../ipc/IPCProvider";
+import {videoMetaPathForSession, videoPathForSession} from "../../../common/FlightVideoPaths";
+import {IPC_CONSTANTS_TO_RENDERER, ToastSeverity} from "../../../common/IPCConstantsToRenderer";
+import {ipcs, processIPC} from "../../ipc/IPCProvider";
 import {getOptionalUD3Connection} from "../connection";
 import {isExportDoneMessage, makeFlightRecorderWorker, WorkerMessage} from "./FlightRecordingWorker";
 import {addSessionToIndex, ensureSessionsDir, SESSIONS_DIR} from "./SessionIndex";
@@ -62,6 +63,7 @@ export class FlightRecorder {
     private oldBuffer: FlightRecordingBuffer;
     private sessionActive: boolean = false;
     private sessionStartWallClock: number = 0;
+    private sessionFilename: string = '';
     private readonly pendingSessions: Map<string, PendingSession> = new Map();
 
     public constructor(coil: CoilID) {
@@ -91,6 +93,14 @@ export class FlightRecorder {
     public startSession() {
         this.sessionActive = true;
         this.sessionStartWallClock = Date.now();
+        ensureSessionsDir();
+        this.sessionFilename = path.join(SESSIONS_DIR, 'tt-session-' + this.sessionStartWallClock + '.zip');
+        // The renderer owns webcam capture (MediaRecorder is a DOM API), so it only learns about
+        // the session from here. It decides on its own whether video recording is switched on.
+        processIPC.send(IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionStarted, {
+            videoMetaPath: videoMetaPathForSession(this.sessionFilename),
+            videoPath: videoPathForSession(this.sessionFilename),
+        });
         // Buffers are never trimmed as events are recorded (export always reads from byte 0), so
         // starting a new session with fresh buffers is what actually scopes the eventual export to
         // just this session - otherwise every session's export would still contain everything
@@ -105,10 +115,11 @@ export class FlightRecorder {
             return;
         }
         this.sessionActive = false;
+        processIPC.send(IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionStopped, undefined);
         const startIso = new Date(this.sessionStartWallClock).toISOString();
         const durationMs = Date.now() - this.sessionStartWallClock;
         ensureSessionsDir();
-        const filename = path.join(SESSIONS_DIR, 'tt-session-' + this.sessionStartWallClock + '.zip');
+        const filename = this.sessionFilename;
         this.pendingSessions.set(filename, {coil: this.coil, durationMs, startIso});
         this.worker.postMessage([this.oldBuffer, this.activeBuffer, filename]);
     }

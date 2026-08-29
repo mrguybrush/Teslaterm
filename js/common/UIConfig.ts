@@ -24,6 +24,8 @@ export interface SyncedUIConfig {
     centralTelemetry: string[];
     midiPrograms: string[];
     autoFlightRecording: boolean;
+    // Record a webcam video (with audio) alongside each flight recording session.
+    recordVideo: boolean;
     windowWidth: number;
     windowHeight: number;
     sliderSize: number;

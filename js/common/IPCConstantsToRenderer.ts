@@ -29,8 +29,12 @@ export const IPC_CONSTANTS_TO_RENDERER = {
         setUDPSuggestions: makeKey<IUDPConnectionSuggestion[]>('suggest-udp'),
     },
     flightRecorder: {
-        fullList: makeKey<{events: ParsedEvent[], initial: InitialFRState}>('fr-event-list'),
+        fullList: makeKey<FRFullListPayload>('fr-event-list'),
         sessionList: makeKey<FlightSessionInfo[]>('flight-session-list'),
+        // Webcam recording follows the session, which starts and stops in the main process, but
+        // MediaRecorder only exists in the renderer - so the renderer has to be told.
+        sessionStarted: makeKey<FlightSessionVideoTarget>('flight-session-started'),
+        sessionStopped: makeKey<undefined>('flight-session-stopped'),
     },
     menu: {
         setMediaTitle: makeKey<string>('menu-media-title'),
@@ -78,6 +82,20 @@ export const IPC_CONSTANTS_TO_RENDERER = {
     // real MIDI devices already work.
     simulatedMidiDevices: makeKey<string[]>('simulated-midi-devices'),
 };
+
+/** Where the renderer should write the webcam video for the session that just started. */
+export interface FlightSessionVideoTarget {
+    videoPath: string;
+    videoMetaPath: string;
+}
+
+export interface FRFullListPayload {
+    events: ParsedEvent[];
+    initial: InitialFRState;
+    // Only set when the opened session has a webcam recording next to it on disk.
+    videoPath?: string;
+    videoStartEpochMs?: number;
+}
 
 export interface AvailableVersion {
     tag: string;

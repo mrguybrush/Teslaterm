@@ -44,6 +44,9 @@ export const IPC_CONSTANTS_TO_MAIN = {
         setPresets: makeKey<ConnectionPreset[]>('set-connect-presets'),
     },
     flightRecorder: {
+        // Webcam capture runs in the renderer, so failures there (no camera, permission denied)
+        // have to be routed back here to reach the toast system.
+        videoError: makeKey<string>('flight-session-video-error'),
         deleteSession: makeKey<string>('flight-session-delete'),
         exportSession: makeKey<string>('flight-session-export'),
         openSession: makeKey<string>('flight-session-open'),
@@ -86,6 +89,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         stopScript: makeKey<undefined>('stop-script'),
     },
     setAutoFlightRecording: makeKey<boolean>('setAutoFlightRecording'),
+    setRecordVideo: makeKey<boolean>('setRecordVideo'),
     setAutonomousPresets: makeKey<AutonomousPreset[]>('setAutonomousPresets'),
     setDarkMode: makeKey<boolean>('setDarkMode'),
     setScopeBackgroundColor: makeKey<string>('setScopeBackgroundColor'),

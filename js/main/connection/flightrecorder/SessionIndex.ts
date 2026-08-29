@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import {FlightSessionInfo} from "../../../common/FlightRecorderTypes";
+import {videoMetaPathForSession, videoPathForSession} from "../../../common/FlightVideoPaths";
 
 export const SESSIONS_DIR = 'flight_recordings';
 const INDEX_FILE = path.join(SESSIONS_DIR, 'index.json');
@@ -43,10 +44,16 @@ export function deleteSession(filename: string): boolean {
     }
     entries.splice(idx, 1);
     writeIndex(entries);
-    try {
-        fs.unlinkSync(filename);
-    } catch (e) {
-        console.warn('Failed to delete flight session file', filename, e);
+    // The webcam video and its sidecar are separate files derived from this one, so deleting the
+    // session has to take them along - they are simply absent for sessions recorded without video.
+    for (const file of [filename, videoPathForSession(filename), videoMetaPathForSession(filename)]) {
+        try {
+            if (fs.existsSync(file)) {
+                fs.unlinkSync(file);
+            }
+        } catch (e) {
+            console.warn('Failed to delete flight session file', file, e);
+        }
     }
     return true;
 }

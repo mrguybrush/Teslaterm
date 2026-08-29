@@ -101,6 +101,12 @@ export class CommonMiscIPC {
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, (autoFlightRecording) => {
             setUIConfig({autoFlightRecording});
         });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setRecordVideo, (recordVideo) => {
+            setUIConfig({recordVideo});
+        });
+        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.flightRecorder.videoError, (message) => {
+            ipcs.misc.openGenericToast('Video recording', message, ToastSeverity.error, 'fr-video');
+        });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setAutonomousPresets, (autonomousPresets) => {
             setUIConfig({autonomousPresets});
         });

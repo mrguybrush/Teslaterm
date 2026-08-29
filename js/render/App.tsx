@@ -10,6 +10,7 @@ import {MainScreen} from "./control/MainScreen";
 import {DarkModeContext} from "./DarkModeContext";
 import {FlightRecordingScreen} from "./flightrecord/FlightRecordingScreen";
 import {FlightSessionsScreen} from "./flightrecord/FlightSessionsScreen";
+import {FlightVideoRecorder} from "./flightrecord/VideoRecorder";
 import {processIPC} from "./ipc/IPCProvider";
 import {setScopeColors} from "./control/scope/ScopeColors";
 import {TTComponent} from "./TTComponent";
@@ -32,6 +33,10 @@ interface TopLevelState {
 }
 
 export class App extends TTComponent<{}, TopLevelState> {
+    // Lives at the top level rather than inside a screen component: recording has to keep running
+    // while the user navigates between screens, and screens get unmounted when they do.
+    private readonly videoRecorder = new FlightVideoRecorder();
+
     constructor(props: any) {
         super(props);
         this.state = {
@@ -45,6 +50,20 @@ export class App extends TTComponent<{}, TopLevelState> {
     }
 
     public componentDidMount() {
+        this.addIPCListener(
+            IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionStarted,
+            (target) => {
+                // Checked here rather than in main so that toggling the setting takes effect for
+                // the very next session without main having to track renderer state.
+                if (this.state.config?.recordVideo) {
+                    this.videoRecorder.start(target).catch((e) => console.error('Starting video', e));
+                }
+            },
+        );
+        this.addIPCListener(
+            IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionStopped,
+            () => this.videoRecorder.stop().catch((e) => console.error('Stopping video', e)),
+        );
         this.addIPCListener(
             IPC_CONSTANTS_TO_RENDERER.ttConfig, (cfg) => this.setState({ttConfig: cfg}),
         );
@@ -121,6 +140,9 @@ export class App extends TTComponent<{}, TopLevelState> {
                 config={this.state.config}
                 connecting={false/*TODO*/}
                 setDarkMode={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setDarkMode, newVal)}
+                setRecordVideo={newVal => processIPC.send(
+                    IPC_CONSTANTS_TO_MAIN.setRecordVideo, newVal,
+                )}
                 setAutoFlightRecording={newVal => processIPC.send(
                     IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, newVal,
                 )}

@@ -49,12 +49,15 @@ export class CommandIPC {
         processIPC.onAsync(
             channels.commands.setTRState,
             (enable) => {
-                if (getUIConfig().syncedConfig.autoFlightRecording) {
-                    if (enable) {
+                if (enable) {
+                    if (getUIConfig().syncedConfig.autoFlightRecording) {
                         getFlightRecorder(coil).startSession();
-                    } else {
-                        getFlightRecorder(coil).stopSession();
                     }
+                } else {
+                    // Deliberately not gated on the setting: turning it off mid-session used to
+                    // strand the session (never written out), and now also the webcam recording it
+                    // started. stopSession() is a no-op when nothing is running.
+                    getFlightRecorder(coil).stopSession();
                 }
                 return commands.setTransientEnabled(enable);
             },

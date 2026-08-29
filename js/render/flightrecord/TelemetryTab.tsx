@@ -13,6 +13,7 @@ import {Traces} from "../control/scope/Traces";
 import {VoltagePhaseSelect} from "../control/scope/VoltagePhaseSelect";
 import {SimpleSliderFixedTitle} from "../control/sliders/SimpleSlider";
 import {TTComponent} from "../TTComponent";
+import {SessionVideo} from "./SessionVideo";
 import {downloadBlob, exportTelemetryVideo, VideoExportState} from "./VideoExport";
 
 export interface TelemetryTabProps {
@@ -38,9 +39,18 @@ export interface TelemetryTabState {
     chartStates: ChartState[][];
     exporting: boolean;
     exportProgress: number;
+    playing: boolean;
 }
 
 export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabState> {
+    // Absolute wall-clock time of the recording's last event. Each state's `time` is relative to
+    // it, so this is what turns a scrub position back into a real timestamp for the video.
+    private readonly endTimeMs: number;
+    private playTimer?: ReturnType<typeof setInterval>;
+    // Wall-clock and telemetry-time origin of the current playback run.
+    private playStartWallClock: number = 0;
+    private playStartTime: number = 0;
+
     public constructor(props) {
         super(props);
         const states: TelemetryState[] = [
@@ -119,13 +129,64 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         if (chartStates.length > 1) {
             chartStates[0] = chartStates[1];
         }
+        this.endTimeMs = endTime;
         this.state = {
             chartStates,
             exportProgress: 0,
             exporting: false,
             lastIndexToShow: 0,
+            playing: false,
             telemetryStates: states,
         };
+    }
+
+    public componentWillUnmount() {
+        super.componentWillUnmount();
+        this.stopPlayback();
+    }
+
+    /**
+     * Advances the scrub position in real time so the recording actually plays back rather than
+     * only being draggable. The video (if any) follows the same position, which is what keeps the
+     * two in step without either driving the other.
+     */
+    private togglePlayback() {
+        if (this.state.playing) {
+            this.stopPlayback();
+            return;
+        }
+        const states = this.state.telemetryStates;
+        // Starting from the very end would immediately stop again; rewind instead.
+        const startIndex = this.state.lastIndexToShow >= states.length - 1 ? 0 : this.state.lastIndexToShow;
+        this.playStartWallClock = Date.now();
+        this.playStartTime = states[startIndex].time;
+        this.playTimer = setInterval(() => this.advancePlayback(), 50);
+        this.setState({lastIndexToShow: startIndex, playing: true});
+    }
+
+    private stopPlayback() {
+        if (this.playTimer) {
+            clearInterval(this.playTimer);
+            this.playTimer = undefined;
+        }
+        if (this.state.playing) {
+            this.setState({playing: false});
+        }
+    }
+
+    private advancePlayback() {
+        const states = this.state.telemetryStates;
+        const target = this.playStartTime + (Date.now() - this.playStartWallClock) / 1000;
+        let index = this.state.lastIndexToShow;
+        while (index < states.length - 1 && states[index + 1].time <= target) {
+            ++index;
+        }
+        if (index >= states.length - 1) {
+            this.setState({lastIndexToShow: states.length - 1});
+            this.stopPlayback();
+        } else if (index !== this.state.lastIndexToShow) {
+            this.setState({lastIndexToShow: index});
+        }
     }
 
     public componentDidUpdate(prevProps: TelemetryTabProps) {
@@ -156,10 +217,20 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                         min={0}
                         max={this.state.telemetryStates.length - 1}
                         value={this.state.lastIndexToShow}
-                        setValue={(value) => this.setState({lastIndexToShow: value})}
+                        setValue={(value) => {
+                            this.stopPlayback();
+                            this.setState({lastIndexToShow: value});
+                        }}
                         visuallyEnabled={true}
                         disabled={false}
                     />
+                    <Button
+                        variant={this.state.playing ? 'primary' : 'secondary'}
+                        size={'sm'}
+                        onClick={() => this.togglePlayback()}
+                    >
+                        {this.state.playing ? 'Pause' : 'Play'}
+                    </Button>
                     <Button
                         variant={'secondary'}
                         size={'sm'}
@@ -189,6 +260,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                     <div className={'tt-gauges'}>
                         {state.gauges.map((p, i) => <Gauge {...p} key={i}/>)}
                     </div>
+                    {this.makeVideo(state)}
                 </div>
             </div>
         );
@@ -233,6 +305,19 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         } finally {
             this.setState({exporting: false});
         }
+    }
+
+    private makeVideo(state: TelemetryState): React.ReactNode {
+        const {videoPath, videoStartEpochMs} = this.props.events;
+        if (!videoPath || videoStartEpochMs === undefined) {
+            return undefined;
+        }
+        return <SessionVideo
+            videoPath={videoPath}
+            videoStartEpochMs={videoStartEpochMs}
+            currentEpochMs={this.endTimeMs + state.time * 1000}
+            playing={this.state.playing}
+        />;
     }
 
     private makeTimeProgress(state: TelemetryState): React.ReactNode {

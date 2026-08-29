@@ -49,9 +49,32 @@
 
 .tt-fr-telemetry-display {
     display: grid;
-    grid-template-columns: auto min-content;
+    /* Third column holds the session video; it collapses to nothing for recordings without one. */
+    grid-template-columns: auto min-content min-content;
     grid-template-rows: 100%;
     overflow-y: hidden;
+}
+
+.tt-fr-video {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    overflow-y: auto;
+}
+
+.tt-fr-video-element {
+    width: 100%;
+    /* Keeps the panel from growing past the scope when a tall video is scaled up. */
+    max-height: calc(100vh - 200px);
+    background: #000;
+    border-radius: 4px;
+}
+
+.tt-fr-video-error {
+    margin: 0;
+    font-style: italic;
+    opacity: 0.8;
 }
 
 .tt-fr-telemetry-scope {

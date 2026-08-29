@@ -92,6 +92,9 @@ interface ConnectScreenState {
 export interface FRDisplayData {
     events: ParsedEvent[];
     initial: InitialFRState;
+    // Present only for sessions that were recorded with the webcam enabled.
+    videoPath?: string;
+    videoStartEpochMs?: number;
 }
 
 export interface ConnectScreenProps {
@@ -99,6 +102,7 @@ export interface ConnectScreenProps {
     connecting: boolean;
     setDarkMode: (newVal: boolean) => void;
     setAutoFlightRecording: (newVal: boolean) => void;
+    setRecordVideo: (newVal: boolean) => void;
     setWindowSizeToCurrent: () => void;
     setSliderSize: (newVal: number) => void;
     setVoltagePhases: (newVal: number) => void;
@@ -187,6 +191,14 @@ export class ConnectScreen extends ScreenWithDrop<ConnectScreenProps, ConnectScr
                     label={'Automatic flight recording on TR start/stop'}
                     checked={this.props.config.autoFlightRecording}
                     onChange={(ev) => this.props.setAutoFlightRecording(ev.target.checked)}
+                />
+                <Form.Check
+                    type={'checkbox'}
+                    id={'record-video'}
+                    label={'Record video (webcam + audio) with each session'}
+                    checked={this.props.config.recordVideo}
+                    disabled={!this.props.config.autoFlightRecording}
+                    onChange={(ev) => this.props.setRecordVideo(ev.target.checked)}
                 />
                 <Button variant={'secondary'} onClick={this.props.openFlightSessions}>
                     Flight Sessions...
