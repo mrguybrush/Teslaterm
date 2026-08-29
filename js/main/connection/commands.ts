@@ -39,7 +39,11 @@ export class CommandInterface {
     }
 
     public async setOntime(ontime: number) {
-        await this.setParam('pw', ontime.toFixed(0));
+        // One decimal place: the relative slider already produces fractional microseconds
+        // (ontimeAbs * relative / 100) and rounding them away here is what limited the ontime to
+        // whole microsecond steps. Firmware with a fractional "pw" parameter uses the decimal,
+        // older firmware parses the value as an integer and ignores it.
+        await this.setParam('pw', ontime.toFixed(1));
     }
 
     public async setBurstOntime(ontime: number) {
