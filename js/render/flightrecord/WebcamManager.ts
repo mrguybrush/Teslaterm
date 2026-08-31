@@ -98,8 +98,30 @@ class WebcamManager {
     }
 
     private async openStream(): Promise<MediaStream> {
-        const video: MediaTrackConstraints | boolean = this.deviceId ? {deviceId: {exact: this.deviceId}} : true;
-        const stream = await navigator.mediaDevices.getUserMedia({audio: true, video});
+        const video: MediaTrackConstraints = {
+            ...(this.deviceId ? {deviceId: {exact: this.deviceId}} : {}),
+            // Chrome's default without an explicit resolution is 640x480 - plenty for a live
+            // preview, not for a recording meant to actually be watched back. `ideal` rather than
+            // `exact` so a camera that can't do 1080p still opens at whatever it can do instead of
+            // failing outright.
+            height: {ideal: 1080},
+            width: {ideal: 1920},
+        };
+        const audio: MediaTrackConstraints = {
+            channelCount: {ideal: 2},
+            // Voice-call defaults, on by default when audio is just `true`. They actively work
+            // against a coil recording: noise suppression treats the arcing itself as noise to
+            // remove, AGC constantly rides the gain up and down between quiet and loud discharges,
+            // and echo cancellation has nothing to cancel with no call partner - the combined
+            // effect is the "muddy"/pumping sound quality. Plain booleans, not `{ideal: false}`:
+            // these toggle a software DSP stage the browser itself owns, not a hardware capability
+            // a given microphone might lack, so there's no risk of this failing like a channel
+            // count or resolution request against fixed hardware could.
+            autoGainControl: false,
+            echoCancellation: false,
+            noiseSuppression: false,
+        };
+        const stream = await navigator.mediaDevices.getUserMedia({audio, video});
         // Everyone may have released again while the camera was opening.
         if (this.consumers.size === 0) {
             stopTracks(stream);

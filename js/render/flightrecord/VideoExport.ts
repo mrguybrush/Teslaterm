@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import {ArrayBufferTarget, Muxer} from "mp4-muxer";
 import {pathToFileURL} from "url";
 import {GaugeProps} from "../control/gauges/Gauge";
@@ -44,6 +45,95 @@ export interface VideoExportSource {
     };
 }
 
+// AAC-LC. WebCodecs' registered codec string, not the container-level 'aac' mp4-muxer expects.
+const AAC_LC_CODEC = 'mp4a.40.2';
+const AUDIO_BITRATE = 192_000;
+// Matches the AAC-LC frame size, so every encoded AAC frame corresponds to exactly one AudioData.
+const AUDIO_SAMPLES_PER_FRAME = 1024;
+
+// Decodes the session video's full audio track to PCM. decodeAudioData demuxes and decodes in one
+// step regardless of the source container (the recording is WebM/Opus today), so this needs no
+// separate demuxer - only a real AudioContext, since OfflineAudioContext refuses files longer than
+// the render length it was constructed for.
+async function loadSessionAudio(path: string): Promise<AudioBuffer | undefined> {
+    try {
+        const bytes = await fs.promises.readFile(path);
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        const audioCtx = new AudioContext();
+        try {
+            return await audioCtx.decodeAudioData(arrayBuffer);
+        } finally {
+            await audioCtx.close();
+        }
+    } catch (e) {
+        console.error('Decoding session audio for export', e);
+        return undefined;
+    }
+}
+
+// Encodes the portion of `audioBuffer` that overlaps the export's [0, totalDurationSeconds] range
+// to AAC and feeds it to the muxer. `offsetSeconds` is where the export's t=0 falls inside the
+// audio recording - negative when the camera (and its audio) had not started yet at that point,
+// in which case that leading gap is encoded as silence so the audio track still lines up with the
+// video rather than starting early or being cut short.
+async function encodeSessionAudio(
+    muxer: Muxer<ArrayBufferTarget>, audioBuffer: AudioBuffer, offsetSeconds: number, totalDurationSeconds: number,
+): Promise<void> {
+    const sampleRate = audioBuffer.sampleRate;
+    const numberOfChannels = audioBuffer.numberOfChannels;
+    const totalOutputSamples = Math.round(totalDurationSeconds * sampleRate);
+    const silenceSamples = offsetSeconds < 0 ? Math.round(-offsetSeconds * sampleRate) : 0;
+    const sourceStartSample = offsetSeconds >= 0 ? Math.round(offsetSeconds * sampleRate) : 0;
+
+    const channelData: Float32Array[] = [];
+    for (let ch = 0; ch < numberOfChannels; ch++) {
+        // Float32Array is zero-initialized, which is exactly the silence needed for both the
+        // leading gap and any trailing samples past the end of the source recording.
+        const out = new Float32Array(totalOutputSamples);
+        const src = audioBuffer.getChannelData(ch);
+        for (let i = silenceSamples; i < totalOutputSamples; i++) {
+            const srcIndex = sourceStartSample + (i - silenceSamples);
+            if (srcIndex < src.length) {
+                out[i] = src[srcIndex];
+            }
+        }
+        channelData.push(out);
+    }
+
+    const audioEncoder = new AudioEncoder({
+        error: (e) => console.error('Audio export encoding error:', e),
+        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+    });
+    audioEncoder.configure({
+        bitrate: AUDIO_BITRATE,
+        codec: AAC_LC_CODEC,
+        numberOfChannels,
+        sampleRate,
+    });
+
+    for (let offset = 0; offset < totalOutputSamples; offset += AUDIO_SAMPLES_PER_FRAME) {
+        const frameSamples = Math.min(AUDIO_SAMPLES_PER_FRAME, totalOutputSamples - offset);
+        // AudioData wants planar samples concatenated channel-by-channel, not interleaved.
+        const planar = new Float32Array(frameSamples * numberOfChannels);
+        for (let ch = 0; ch < numberOfChannels; ch++) {
+            planar.set(channelData[ch].subarray(offset, offset + frameSamples), ch * frameSamples);
+        }
+        const audioData = new AudioData({
+            data: planar,
+            format: 'f32-planar',
+            numberOfChannels,
+            numberOfFrames: frameSamples,
+            sampleRate,
+            timestamp: Math.round((offset / sampleRate) * 1e6),
+        });
+        audioEncoder.encode(audioData);
+        audioData.close();
+    }
+
+    await audioEncoder.flush();
+    audioEncoder.close();
+}
+
 // Loads a video file into an off-DOM element and waits until seeking it is possible. Never
 // attached to the document and never played - only ever used as a drawImage() source.
 function loadCameraVideo(path: string): Promise<HTMLVideoElement> {
@@ -86,7 +176,7 @@ function drawCameraPanel(
     ctx: CanvasRenderingContext2D, video: HTMLVideoElement | undefined, startX: number, showFrame: boolean,
 ) {
     ctx.save();
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#fff';
     ctx.fillRect(startX, 0, CAMERA_PANEL_WIDTH, CANVAS_HEIGHT);
     if (video && showFrame && video.videoWidth > 0) {
         // Letterboxed rather than stretched or cropped - the point of including the camera is to
@@ -176,9 +266,18 @@ export async function exportTelemetryVideo(
     // Loaded once up front rather than per frame - repeatedly creating/loading a <video> element
     // would dwarf the cost of the seeks themselves.
     const cameraVideo = source.video ? await loadCameraVideo(source.video.path) : undefined;
+    // Decoded separately from the <video> element above: reading frames back out of an
+    // HTMLVideoElement's audio track isn't something the DOM exposes, so the same file is decoded
+    // a second time, this time as audio, via the Web Audio API.
+    const sessionAudio = source.video ? await loadSessionAudio(source.video.path) : undefined;
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
+        audio: sessionAudio ? {
+            codec: 'aac',
+            numberOfChannels: sessionAudio.numberOfChannels,
+            sampleRate: sessionAudio.sampleRate,
+        } : undefined,
         fastStart: 'in-memory',
         firstTimestampBehavior: 'offset',
         target,
@@ -231,6 +330,14 @@ export async function exportTelemetryVideo(
 
     await videoEncoder.flush();
     videoEncoder.close();
+
+    if (sessionAudio && source.video) {
+        // Where the export's own t=0 falls inside the camera recording - the same reference point
+        // drawFrame() uses per-frame for the picture, needed here once for the whole audio track.
+        const offsetSeconds = (source.stateAtTime(0).epochMs - source.video.startEpochMs) / 1000;
+        await encodeSessionAudio(muxer, sessionAudio, offsetSeconds, totalDuration);
+    }
+
     muxer.finalize();
 
     return new Blob([target.buffer], {type: 'video/mp4'});

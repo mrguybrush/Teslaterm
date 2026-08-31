@@ -87,7 +87,13 @@ export class FlightVideoRecorder {
         }
         try {
             this.writeStream = fs.createWriteStream(target.videoPath);
-            const recorder = new MediaRecorder(stream, {mimeType});
+            const recorder = new MediaRecorder(stream, {
+                // MediaRecorder's own unstated defaults are conservative (well under what a
+                // 1080p/stereo capture deserves) and vary by Chromium version - pin them instead.
+                audioBitsPerSecond: 192_000,
+                mimeType,
+                videoBitsPerSecond: 8_000_000,
+            });
             recorder.ondataavailable = (ev) => this.onChunk(ev.data);
             recorder.onerror = (ev) => this.reportError(`Recording failed: ${(ev as any)?.error?.message || ev.type}`);
             // The first frame is only captured once the recorder actually starts, which is well
