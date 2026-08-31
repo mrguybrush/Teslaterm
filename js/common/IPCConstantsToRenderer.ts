@@ -127,6 +127,7 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
         sliders: {
             syncSettings: makeCoilKey<ISliderState>('slider-sync'),
         },
+        flightRecorderActive: makeCoilKey<boolean>('fr-active'),
         configList: makeCoilKey<UD3ConfigOption[]>('config-list'),
         singleConfigValue: makeCoilKey<UD3ConfigOption>('single-config-value'),
         terminal: makeCoilKey<string>('terminal'),

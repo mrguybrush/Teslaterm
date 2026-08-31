@@ -88,7 +88,6 @@ export const IPC_CONSTANTS_TO_MAIN = {
         startScript: makeKey<undefined>('start-script'),
         stopScript: makeKey<undefined>('stop-script'),
     },
-    setAutoFlightRecording: makeKey<boolean>('setAutoFlightRecording'),
     setRecordVideo: makeKey<boolean>('setRecordVideo'),
     setVideoDeviceId: makeKey<string>('setVideoDeviceId'),
     setAutonomousPresets: makeKey<AutonomousPreset[]>('setAutonomousPresets'),
@@ -122,6 +121,11 @@ export function getToMainIPCPerCoil(coil: CoilID) {
             setTRState: makeCoilKey<boolean>('set-tr-state'),
         },
         dumpFlightRecorder: makeCoilKey<CoilID>('dump-flight-recorder'),
+        flightRecorder: {
+            requestState: makeCoilKey<undefined>('fr-request-state'),
+            startRecording: makeCoilKey<undefined>('fr-start-recording'),
+            stopRecording: makeCoilKey<undefined>('fr-stop-recording'),
+        },
         manualCommand: makeCoilKey<string>('manual-command'),
         midiMessage: makeCoilKey<Uint8Array>('midi-message'),
         menu: {

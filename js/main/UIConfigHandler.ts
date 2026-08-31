@@ -89,9 +89,6 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
     if (object.darkMode === undefined) {
         object.darkMode = false;
     }
-    if (object.autoFlightRecording === undefined) {
-        object.autoFlightRecording = false;
-    }
     if (object.recordVideo === undefined) {
         object.recordVideo = false;
     }

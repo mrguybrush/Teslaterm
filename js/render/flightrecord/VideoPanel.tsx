@@ -2,8 +2,9 @@ import React from "react";
 import {Button, Form} from "react-bootstrap";
 import {pathToFileURL} from "url";
 import {FlightSessionInfo} from "../../common/FlightRecorderTypes";
-import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
-import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
+import {CoilID} from "../../common/constants";
+import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
+import {getToRenderIPCPerCoil, IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
 import {SyncedUIConfig} from "../../common/UIConfig";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
@@ -12,12 +13,16 @@ import {webcamManager} from "./WebcamManager";
 
 export interface VideoPanelProps {
     config: SyncedUIConfig;
+    coil: CoilID;
 }
 
 interface VideoPanelState {
     cameras: MediaDeviceInfo[];
     previewOn: boolean;
+    // Video capture state, which can lag the session slightly while the camera opens.
     recording: boolean;
+    // Whether a flight recording session is running at all.
+    sessionActive: boolean;
     sessions: FlightSessionInfo[];
     playingVideoPath?: string;
     error?: string;
@@ -40,6 +45,7 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
             // still on now - reflect the real state rather than assuming it starts off.
             previewOn: webcamManager.isActive(),
             recording: flightVideoRecorder.recording,
+            sessionActive: false,
             sessions: [],
         };
     }
@@ -56,7 +62,20 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
             IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionList,
             (sessions) => this.setState({sessions}),
         );
+        this.addIPCListener(
+            getToRenderIPCPerCoil(this.props.coil).flightRecorderActive,
+            (sessionActive) => {
+                this.setState({sessionActive});
+                // A session that just ended has a new video to list.
+                if (!sessionActive) {
+                    processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.requestSessionList, undefined);
+                }
+            },
+        );
         processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.requestSessionList, undefined);
+        // The panel is remounted on every tab switch, so it has to ask rather than assume a
+        // recording started before it was open is not running.
+        processIPC.send(getToMainIPCPerCoil(this.props.coil).flightRecorder.requestState, undefined);
         this.refreshCameras();
         this.attachPreview();
     }
@@ -77,21 +96,31 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
         return <div className={'tt-video-panel'}>
             <div className={'tt-video-panel-controls'}>
                 {this.makeRecordingIndicator()}
-                <Form.Check
-                    type={'checkbox'}
-                    id={'video-auto-flight-recording'}
-                    label={'Automatic flight recording on TR start/stop'}
-                    checked={this.props.config.autoFlightRecording}
-                    onChange={(ev) => processIPC.send(
-                        IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, ev.target.checked,
+                <Button
+                    size={'sm'}
+                    variant={'danger'}
+                    disabled={this.state.sessionActive}
+                    onClick={() => processIPC.send(
+                        getToMainIPCPerCoil(this.props.coil).flightRecorder.startRecording, undefined,
                     )}
-                />
+                >
+                    Record
+                </Button>
+                <Button
+                    size={'sm'}
+                    variant={'secondary'}
+                    disabled={!this.state.sessionActive}
+                    onClick={() => processIPC.send(
+                        getToMainIPCPerCoil(this.props.coil).flightRecorder.stopRecording, undefined,
+                    )}
+                >
+                    Stop
+                </Button>
                 <Form.Check
                     type={'checkbox'}
                     id={'video-record-video'}
-                    label={'Also record video with each session'}
+                    label={'Include webcam video'}
                     checked={this.props.config.recordVideo}
-                    disabled={!this.props.config.autoFlightRecording}
                     onChange={(ev) => processIPC.send(IPC_CONSTANTS_TO_MAIN.setRecordVideo, ev.target.checked)}
                 />
                 {this.makeCameraSelect()}
@@ -112,11 +141,12 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
     }
 
     private makeRecordingIndicator() {
-        if (!this.state.recording) {
+        if (!this.state.sessionActive) {
             return <span className={'tt-video-idle'}>Not recording</span>;
         }
         return <span className={'tt-video-recording'}>
-            <span className={'tt-video-recording-dot'}/> Recording
+            <span className={'tt-video-recording-dot'}/>
+            {this.state.recording ? 'Recording + video' : 'Recording'}
         </span>;
     }
 

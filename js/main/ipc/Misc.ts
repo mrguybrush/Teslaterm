@@ -98,9 +98,6 @@ export class CommonMiscIPC {
                 scopeGridColor: darkMode ? '#4a4a4a' : '#bfbfbf',
             });
         });
-        this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, (autoFlightRecording) => {
-            setUIConfig({autoFlightRecording});
-        });
         this.processIPC.on(IPC_CONSTANTS_TO_MAIN.setRecordVideo, (recordVideo) => {
             setUIConfig({recordVideo});
         });

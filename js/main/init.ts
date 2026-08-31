@@ -1,6 +1,7 @@
 import {TTConfig} from "../common/TTConfig";
 import {getMixer} from "./connection/connection";
 import * as connection from "./connection/connection";
+import {tickFlightRecorders} from "./connection/flightrecorder/FlightRecorder";
 import {ipcs} from "./ipc/IPCProvider";
 import * as IPC from "./ipc/IPCProvider";
 import * as midi from "./midi/midi";
@@ -20,6 +21,7 @@ export function init() {
 
 function tick200() {
     connection.updateSlow();
+    tickFlightRecorders();
 }
 
 function tick100() {

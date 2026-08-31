@@ -23,7 +23,6 @@ export interface SyncedUIConfig {
     darkMode: boolean;
     centralTelemetry: string[];
     midiPrograms: string[];
-    autoFlightRecording: boolean;
     // Record a webcam video (with audio) alongside each flight recording session.
     recordVideo: boolean;
     // deviceId of the chosen camera, empty for the system default. Device ids are stable per

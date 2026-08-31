@@ -10,7 +10,6 @@ import {FirmwareFiletype, handleBootloaderFileDrop} from "../connection/state/Bo
 import {getCoilCommands} from "../connection/connection";
 import {getFlightRecorder} from "../connection/flightrecorder/FlightRecorder";
 import {mainWindow} from "../main_electron";
-import {getUIConfig} from "../UIConfigHandler";
 import {TemporaryIPC} from "./TemporaryIPC";
 import {MainIPC} from "./IPCProvider";
 
@@ -30,6 +29,9 @@ export class CommandIPC {
         const commands = getCoilCommands(coil);
         const channels = getToMainIPCPerCoil(coil);
         processIPC.onAsync(channels.commands.saveEEPROM, () => commands.eepromSave());
+        processIPC.on(channels.flightRecorder.startRecording, () => getFlightRecorder(coil).startSession());
+        processIPC.on(channels.flightRecorder.stopRecording, () => getFlightRecorder(coil).stopSession());
+        processIPC.on(channels.flightRecorder.requestState, () => getFlightRecorder(coil).sendState());
         processIPC.onAsync(
             channels.commands.pickFirmwareFile,
             () => this.pickFirmwareFile(processIPC),
@@ -49,16 +51,9 @@ export class CommandIPC {
         processIPC.onAsync(
             channels.commands.setTRState,
             (enable) => {
-                if (enable) {
-                    if (getUIConfig().syncedConfig.autoFlightRecording) {
-                        getFlightRecorder(coil).startSession();
-                    }
-                } else {
-                    // Deliberately not gated on the setting: turning it off mid-session used to
-                    // strand the session (never written out), and now also the webcam recording it
-                    // started. stopSession() is a no-op when nothing is running.
-                    getFlightRecorder(coil).stopSession();
-                }
+                // Recording is started and stopped by hand from the Video tab; TR only tells the
+                // recorder whether the coil is busy, which is what holds off the idle timeout.
+                getFlightRecorder(coil).setTransientActive(enable);
                 return commands.setTransientEnabled(enable);
             },
         );

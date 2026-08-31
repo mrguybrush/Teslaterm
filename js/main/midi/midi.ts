@@ -4,6 +4,7 @@ import {ChannelID} from "../../common/IPCConstantsToRenderer";
 import {MediaFileType, PlayerActivity} from "../../common/MediaTypes";
 import {MidiPlaybackState, MidiPlayerState} from "../../common/MidiPlaylistTypes";
 import {forEachCoil, forEachCoilAsync, getConnectionState, hasUD3Connection} from "../connection/connection";
+import {getFlightRecorder} from "../connection/flightrecorder/FlightRecorder";
 import {Connected} from "../connection/state/Connected";
 import {ipcs} from "../ipc/IPCProvider";
 import {checkTransientDisabled, media_state, notifySongEnded} from "../media/media_player";
@@ -222,6 +223,8 @@ export async function playMidiDataOn(coil: CoilID, data: number[] | Uint8Array):
     await checkTransientDisabled(coil);
     const connectionState = getConnectionState(coil);
     if (connectionState instanceof Connected) {
+        // Keeps a running flight recording alive while a song plays without TR being latched on.
+        getFlightRecorder(coil).notifyActivity();
         await connectionState.sendMIDI(Buffer.from(data));
     }
 }
