@@ -44,7 +44,19 @@
 }
 
 .tt-fr-telemetry-control {
-    flex: 0 0 100px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 100px;
+    padding: 0 8px;
+}
+
+.tt-fr-telemetry-control .btn {
+    margin: 0 6px;
+}
+
+.tt-fr-telemetry-control .form-check {
+    margin-left: auto;
 }
 
 .tt-fr-telemetry-display {
