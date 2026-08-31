@@ -33,7 +33,12 @@ export function addSessionToIndex(entry: FlightSessionInfo) {
 }
 
 export function listSessions(): FlightSessionInfo[] {
-    return readIndex().sort((a, b) => b.startIso.localeCompare(a.startIso));
+    return readIndex()
+        .map((entry) => {
+            const videoPath = videoPathForSession(entry.filename);
+            return fs.existsSync(videoPath) ? {...entry, videoPath} : entry;
+        })
+        .sort((a, b) => b.startIso.localeCompare(a.startIso));
 }
 
 export function deleteSession(filename: string): boolean {

@@ -82,3 +82,125 @@
     border-style: solid;
     border-color: red;
 }
+
+/* --- Video tab (live preview, camera choice, recorded session videos) --- */
+
+.tt-video-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    height: 100%;
+    overflow: hidden;
+}
+
+.tt-video-panel-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    flex: 0 0 auto;
+}
+
+.tt-video-camera-select {
+    width: auto;
+    max-width: 260px;
+}
+
+.tt-video-panel-error {
+    color: var(--bs-danger, #dc3545);
+}
+
+.tt-video-idle {
+    opacity: 0.7;
+}
+
+.tt-video-recording {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: bold;
+    color: var(--bs-danger, #dc3545);
+}
+
+.tt-video-recording-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bs-danger, #dc3545);
+    animation: tt-video-blink 1.2s steps(1, end) infinite;
+}
+
+@keyframes tt-video-blink {
+    50% { opacity: 0.15; }
+}
+
+.tt-video-panel-body {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.tt-video-preview {
+    position: relative;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    border-radius: 4px;
+}
+
+.tt-video-preview-element {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.tt-video-preview-hint {
+    position: absolute;
+    margin: 0;
+    color: #ccc;
+    font-style: italic;
+}
+
+.tt-video-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 4px;
+}
+
+.tt-video-list-header {
+    font-weight: bold;
+    flex: 0 0 auto;
+}
+
+.tt-video-list-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.tt-video-list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.tt-video-list-empty {
+    margin: 0;
+    opacity: 0.7;
+    font-style: italic;
+}
+
+.tt-video-playback {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 40%;
+    background: #000;
+    border-radius: 4px;
+}

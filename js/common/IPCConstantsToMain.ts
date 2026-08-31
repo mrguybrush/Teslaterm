@@ -90,6 +90,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
     },
     setAutoFlightRecording: makeKey<boolean>('setAutoFlightRecording'),
     setRecordVideo: makeKey<boolean>('setRecordVideo'),
+    setVideoDeviceId: makeKey<string>('setVideoDeviceId'),
     setAutonomousPresets: makeKey<AutonomousPreset[]>('setAutonomousPresets'),
     setDarkMode: makeKey<boolean>('setDarkMode'),
     setScopeBackgroundColor: makeKey<string>('setScopeBackgroundColor'),

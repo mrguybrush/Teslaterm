@@ -95,6 +95,9 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
     if (object.recordVideo === undefined) {
         object.recordVideo = false;
     }
+    if (object.videoDeviceId === undefined) {
+        object.videoDeviceId = '';
+    }
     if (object.windowWidth === undefined) {
         object.windowWidth = 1800;
     }

@@ -10,7 +10,8 @@ import {MainScreen} from "./control/MainScreen";
 import {DarkModeContext} from "./DarkModeContext";
 import {FlightRecordingScreen} from "./flightrecord/FlightRecordingScreen";
 import {FlightSessionsScreen} from "./flightrecord/FlightSessionsScreen";
-import {FlightVideoRecorder} from "./flightrecord/VideoRecorder";
+import {flightVideoRecorder} from "./flightrecord/VideoRecorder";
+import {webcamManager} from "./flightrecord/WebcamManager";
 import {processIPC} from "./ipc/IPCProvider";
 import {setScopeColors} from "./control/scope/ScopeColors";
 import {TTComponent} from "./TTComponent";
@@ -33,10 +34,6 @@ interface TopLevelState {
 }
 
 export class App extends TTComponent<{}, TopLevelState> {
-    // Lives at the top level rather than inside a screen component: recording has to keep running
-    // while the user navigates between screens, and screens get unmounted when they do.
-    private readonly videoRecorder = new FlightVideoRecorder();
-
     constructor(props: any) {
         super(props);
         this.state = {
@@ -56,13 +53,13 @@ export class App extends TTComponent<{}, TopLevelState> {
                 // Checked here rather than in main so that toggling the setting takes effect for
                 // the very next session without main having to track renderer state.
                 if (this.state.config?.recordVideo) {
-                    this.videoRecorder.start(target).catch((e) => console.error('Starting video', e));
+                    flightVideoRecorder.start(target).catch((e) => console.error('Starting video', e));
                 }
             },
         );
         this.addIPCListener(
             IPC_CONSTANTS_TO_RENDERER.flightRecorder.sessionStopped,
-            () => this.videoRecorder.stop().catch((e) => console.error('Stopping video', e)),
+            () => flightVideoRecorder.stop().catch((e) => console.error('Stopping video', e)),
         );
         this.addIPCListener(
             IPC_CONSTANTS_TO_RENDERER.ttConfig, (cfg) => this.setState({ttConfig: cfg}),
@@ -70,6 +67,10 @@ export class App extends TTComponent<{}, TopLevelState> {
         this.addIPCListener(
             IPC_CONSTANTS_TO_RENDERER.uiConfig, (cfg) => {
                 this.setState({config: cfg});
+                // Applied here rather than in the video panel: a recording can start from a TR
+                // switch-on without that panel ever having been opened, and it still has to use
+                // the camera the user picked.
+                webcamManager.initDeviceId(cfg.videoDeviceId);
                 document.documentElement.setAttribute('data-bs-theme', cfg.darkMode ? 'dark' : 'light');
                 document.documentElement.style.setProperty('--tt-slider-thumb-size', cfg.sliderSize + 'px');
                 setScopeColors({
@@ -140,12 +141,6 @@ export class App extends TTComponent<{}, TopLevelState> {
                 config={this.state.config}
                 connecting={false/*TODO*/}
                 setDarkMode={newVal => processIPC.send(IPC_CONSTANTS_TO_MAIN.setDarkMode, newVal)}
-                setRecordVideo={newVal => processIPC.send(
-                    IPC_CONSTANTS_TO_MAIN.setRecordVideo, newVal,
-                )}
-                setAutoFlightRecording={newVal => processIPC.send(
-                    IPC_CONSTANTS_TO_MAIN.setAutoFlightRecording, newVal,
-                )}
                 setWindowSizeToCurrent={() => processIPC.send(
                     IPC_CONSTANTS_TO_MAIN.setWindowSizeToCurrent, undefined,
                 )}

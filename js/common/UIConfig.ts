@@ -26,6 +26,9 @@ export interface SyncedUIConfig {
     autoFlightRecording: boolean;
     // Record a webcam video (with audio) alongside each flight recording session.
     recordVideo: boolean;
+    // deviceId of the chosen camera, empty for the system default. Device ids are stable per
+    // browser profile, so this survives restarts as long as the camera stays plugged in.
+    videoDeviceId: string;
     windowWidth: number;
     windowHeight: number;
     sliderSize: number;

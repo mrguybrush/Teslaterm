@@ -8,6 +8,7 @@ import {TTComponent} from "../TTComponent";
 import {GDTPanel} from "./GDTPanel";
 import {Gauges} from "./gauges/Gauges";
 import {MenuBar} from "./menu/Menu";
+import {VideoPanel} from "../flightrecord/VideoPanel";
 import {MidiPlaylistPanel} from "./MidiPlaylistPanel";
 import {PianoPanel} from "./PianoPanel";
 import {FrequencyScopePanel} from "./scope/FrequencyScopePanel";
@@ -39,6 +40,7 @@ export interface SingleCoilTabProps {
 enum BottomPanelMode {
     terminal,
     midi_playlist,
+    video,
     piano,
     frequency,
     gdt,
@@ -100,6 +102,13 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                                 MIDI Playlist
                             </Button>
                             <Button
+                                variant={bottomPanel === BottomPanelMode.video ? 'primary' : 'secondary'}
+                                size={'sm'}
+                                onClick={() => this.setState({bottomPanel: BottomPanelMode.video})}
+                            >
+                                Video
+                            </Button>
+                            <Button
                                 variant={bottomPanel === BottomPanelMode.piano ? 'primary' : 'secondary'}
                                 size={'sm'}
                                 onClick={() => this.setState({bottomPanel: BottomPanelMode.piano})}
@@ -141,6 +150,8 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                         />}
                         {bottomPanel === BottomPanelMode.midi_playlist &&
                             <MidiPlaylistPanel disabled={!this.props.allowInteraction}/>}
+                        {bottomPanel === BottomPanelMode.video &&
+                            <VideoPanel config={this.props.config}/>}
                         <PianoPanel
                             disabled={!this.props.allowInteraction}
                             active={this.state.pianoActive}

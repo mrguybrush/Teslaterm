@@ -3,6 +3,7 @@ import {FlightVideoMeta} from "../../common/FlightVideoPaths";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {FlightSessionVideoTarget} from "../../common/IPCConstantsToRenderer";
 import {processIPC} from "../ipc/IPCProvider";
+import {webcamManager} from "./WebcamManager";
 
 // Chromium always has the first of these; the rest are only listed so a future build with
 // different codec support still records something rather than failing outright.
@@ -29,7 +30,6 @@ function pickMimeType(): string | undefined {
  */
 export class FlightVideoRecorder {
     private recorder?: MediaRecorder;
-    private stream?: MediaStream;
     private writeStream?: fs.WriteStream;
     // Chunks arrive as Blobs and have to be converted before they can be written, so a write is
     // always still in flight when the next one is queued. Chaining them keeps the file in order
@@ -43,14 +43,16 @@ export class FlightVideoRecorder {
     // against the generation captured before the await is what tells that apart. A boolean
     // "cancelled" flag could not: the stop that set it also resets state for the next session.
     private generation: number = 0;
-    private onStateChange?: () => void;
-
-    public constructor(onStateChange?: () => void) {
-        this.onStateChange = onStateChange;
-    }
+    private readonly listeners = new Set<() => void>();
 
     public get recording(): boolean {
         return this.recorder !== undefined;
+    }
+
+    /** Lets the video panel show recording state even though recording is driven from elsewhere. */
+    public subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
     }
 
     public async start(target: FlightSessionVideoTarget) {
@@ -61,7 +63,9 @@ export class FlightVideoRecorder {
         this.target = target;
         let stream: MediaStream;
         try {
-            stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+            // Shared with the live preview, so recording never has to open a second handle on the
+            // same camera and a preview that is already running just keeps going.
+            stream = await webcamManager.acquire('recording');
         } catch (e) {
             if (generation === this.generation) {
                 this.reportError(`Could not open the webcam: ${e?.message || e}`);
@@ -71,18 +75,17 @@ export class FlightVideoRecorder {
         }
         // The session can end while getUserMedia is still waiting on the user or the device.
         if (generation !== this.generation) {
-            stopTracks(stream);
+            webcamManager.release('recording');
             return;
         }
         const mimeType = pickMimeType();
         if (!mimeType) {
-            stopTracks(stream);
+            webcamManager.release('recording');
             this.reportError('No supported video format available for recording.');
             this.reset();
             return;
         }
         try {
-            this.stream = stream;
             this.writeStream = fs.createWriteStream(target.videoPath);
             const recorder = new MediaRecorder(stream, {mimeType});
             recorder.ondataavailable = (ev) => this.onChunk(ev.data);
@@ -102,7 +105,7 @@ export class FlightVideoRecorder {
             // One chunk per second keeps the on-disk file close to what has been captured without
             // producing an excessive number of small writes.
             recorder.start(1000);
-            this.onStateChange?.();
+            this.notify();
         } catch (e) {
             this.reportError(`Could not start recording: ${e?.message || e}`);
             this.stopEverything();
@@ -135,7 +138,7 @@ export class FlightVideoRecorder {
             }
         });
         await this.closeWriteStream();
-        stopTracks(this.stream);
+        webcamManager.release('recording');
         this.reset();
     }
 
@@ -174,18 +177,21 @@ export class FlightVideoRecorder {
         } catch (e) {
             console.error('Stopping video recording', e);
         }
-        stopTracks(this.stream);
+        webcamManager.release('recording');
         this.closeWriteStream().catch((e) => console.error('Closing video file', e));
         this.reset();
     }
 
     private reset() {
         this.recorder = undefined;
-        this.stream = undefined;
         this.target = undefined;
         this.startEpochMs = undefined;
         this.writeChain = Promise.resolve();
-        this.onStateChange?.();
+        this.notify();
+    }
+
+    private notify() {
+        this.listeners.forEach((listener) => listener());
     }
 
     private reportError(message: string) {
@@ -194,6 +200,4 @@ export class FlightVideoRecorder {
     }
 }
 
-function stopTracks(stream?: MediaStream) {
-    stream?.getTracks().forEach((track) => track.stop());
-}
+export const flightVideoRecorder = new FlightVideoRecorder();

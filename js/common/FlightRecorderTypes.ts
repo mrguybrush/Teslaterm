@@ -117,5 +117,8 @@ export interface FlightSessionInfo {
     coilName?: string;
     startIso: string;
     durationMs: number;
+    // Filled in when the session list is built, not stored in the index: the video is written by
+    // the renderer after the index entry already exists, so the filesystem is the only truth.
+    videoPath?: string;
 }
 
