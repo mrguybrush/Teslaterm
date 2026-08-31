@@ -14,7 +14,7 @@ import {VoltagePhaseSelect} from "../control/scope/VoltagePhaseSelect";
 import {SimpleSliderFixedTitle} from "../control/sliders/SimpleSlider";
 import {TTComponent} from "../TTComponent";
 import {SessionVideo} from "./SessionVideo";
-import {downloadBlob, exportTelemetryVideo, VideoExportState} from "./VideoExport";
+import {downloadBlob, ExportResolution, exportTelemetryVideo, VideoExportState} from "./VideoExport";
 
 export interface TelemetryTabProps {
     events: FRDisplayData;
@@ -41,6 +41,8 @@ export interface TelemetryTabState {
     exportProgress: number;
     playing: boolean;
     includeVideoInExport: boolean;
+    exportFps: number;
+    exportResolution: ExportResolution;
 }
 
 export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabState> {
@@ -133,7 +135,9 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         this.endTimeMs = endTime;
         this.state = {
             chartStates,
+            exportFps: 24,
             exportProgress: 0,
+            exportResolution: 'hd_ready',
             exporting: false,
             includeVideoInExport: false,
             lastIndexToShow: 0,
@@ -243,6 +247,31 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                             ? `Exporting… ${Math.round(this.state.exportProgress * 100)}%`
                             : 'Export as video'}
                     </Button>
+                    <Form.Select
+                        size={'sm'}
+                        style={{width: 'auto'}}
+                        title={'Export frame rate'}
+                        value={this.state.exportFps}
+                        disabled={this.state.exporting}
+                        onChange={(ev) => this.setState({exportFps: Number(ev.target.value)})}
+                    >
+                        <option value={10}>10 fps</option>
+                        <option value={15}>15 fps</option>
+                        <option value={24}>24 fps</option>
+                        <option value={30}>30 fps</option>
+                        <option value={60}>60 fps</option>
+                    </Form.Select>
+                    <Form.Select
+                        size={'sm'}
+                        style={{width: 'auto'}}
+                        title={'Export resolution'}
+                        value={this.state.exportResolution}
+                        disabled={this.state.exporting}
+                        onChange={(ev) => this.setState({exportResolution: ev.target.value as ExportResolution})}
+                    >
+                        <option value={'hd_ready'}>HD Ready (1280×720)</option>
+                        <option value={'full_hd'}>Full HD (1920×1080)</option>
+                    </Form.Select>
                     {this.props.events.videoPath && <Form.Check
                         type={'checkbox'}
                         id={'export-include-video'}
@@ -321,6 +350,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                     totalDurationSeconds,
                     video: includeVideo ? {path: videoPath, startEpochMs: videoStartEpochMs} : undefined,
                 },
+                {fps: this.state.exportFps, resolution: this.state.exportResolution},
                 (fraction) => this.setState({exportProgress: fraction}),
             );
             downloadBlob(blob, `flight-recording-${Date.now()}.mp4`);

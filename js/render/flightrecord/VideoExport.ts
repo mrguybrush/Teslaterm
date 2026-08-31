@@ -6,24 +6,47 @@ import {scopeColors} from "../control/scope/ScopeColors";
 import {OscilloscopeTrace} from "../control/scope/Trace";
 import {Traces} from "../control/scope/Traces";
 
-const CANVAS_WIDTH = 960;
-const CANVAS_HEIGHT = 540;
-// The recording itself only has a handful of samples per second anyway, so a higher video frame
-// rate wouldn't show anything new - keep it low to keep encoding (and thus export) fast.
-const FPS = 10;
-// Quality doesn't matter much here (it's a line chart, not video footage), so bias hard towards
-// small file size: a low bitrate plus infrequent keyframes let H.264's inter-frame compression do
-// most of the work, since consecutive frames of a slowly-moving chart are mostly identical.
-const VIDEO_BITRATE = 250_000;
-// Real camera footage does not compress nearly as well as a mostly-static line chart, so the panel
-// gets a much larger bitrate share whenever it is included.
-const VIDEO_BITRATE_WITH_CAMERA = 2_000_000;
-const KEYFRAME_INTERVAL_FRAMES = FPS * 3;
-const SCOPE_HEIGHT = 380;
-const LEGEND_WIDTH = 220;
-const TOP_MARGIN = 36;
-// Width of the extra panel added to the right of the scope when a session video is included.
-const CAMERA_PANEL_WIDTH = 360;
+export type ExportResolution = 'hd_ready' | 'full_hd';
+
+export interface ExportOptions {
+    fps: number;
+    resolution: ExportResolution;
+}
+
+const RESOLUTIONS: Record<ExportResolution, {width: number; height: number}> = {
+    full_hd: {height: 1080, width: 1920},
+    hd_ready: {height: 720, width: 1280},
+};
+
+// The whole layout below (panel widths, margins, font sizes) was designed against this canvas
+// height. Every selectable resolution scales those same proportions up or down from here instead
+// of hard-coding a second set of constants per resolution - all three options share one 16:9 aspect
+// ratio, so a single height-derived scale factor keeps width and height proportions consistent too.
+const BASE_CANVAS_HEIGHT = 540;
+const BASE_SCOPE_HEIGHT = 380;
+const BASE_LEGEND_WIDTH = 220;
+const BASE_TOP_MARGIN = 36;
+const BASE_CAMERA_PANEL_WIDTH = 360;
+// Quality doesn't matter much for the chart itself (it's a line chart, not video footage), so bias
+// hard towards small file size: a low bitrate plus infrequent keyframes let H.264's inter-frame
+// compression do most of the work, since consecutive frames of a slowly-moving chart are mostly
+// identical. Real camera footage does not compress nearly as well, so the panel gets a much larger
+// bitrate share whenever it is included. Both scale with the chosen resolution's pixel area.
+const BASE_VIDEO_BITRATE = 250_000;
+const BASE_VIDEO_BITRATE_WITH_CAMERA = 2_000_000;
+const KEYFRAME_INTERVAL_SECONDS = 3;
+
+interface Layout {
+    canvasHeight: number;
+    scopeWidth: number;
+    scopeHeight: number;
+    legendWidth: number;
+    topMargin: number;
+    cameraPanelWidth: number;
+    // Applied to every font size and small spacing constant so text stays proportional instead of
+    // shrinking into a corner of a 1080p canvas or overflowing a 720p one.
+    fontScale: number;
+}
 
 export interface VideoExportState {
     time: number;
@@ -50,24 +73,116 @@ const AAC_LC_CODEC = 'mp4a.40.2';
 const AUDIO_BITRATE = 192_000;
 // Matches the AAC-LC frame size, so every encoded AAC frame corresponds to exactly one AudioData.
 const AUDIO_SAMPLES_PER_FRAME = 1024;
+const AUDIO_CHANNEL_COUNT = 2;
 
-// Decodes the session video's full audio track to PCM. decodeAudioData demuxes and decodes in one
-// step regardless of the source container (the recording is WebM/Opus today), so this needs no
-// separate demuxer - only a real AudioContext, since OfflineAudioContext refuses files longer than
-// the render length it was constructed for.
-async function loadSessionAudio(path: string): Promise<AudioBuffer | undefined> {
+// Loads a video file into an off-DOM element and waits until seeking it is possible. Never
+// attached to the document and never played by its caller - only ever used as a drawImage() source
+// (loadSessionAudio() below plays it once, separately, before the caller starts seeking it).
+function loadCameraVideo(path: string): Promise<HTMLVideoElement> {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.preload = 'auto';
+        video.onloadedmetadata = () => resolve(video);
+        video.onerror = () => reject(new Error(`Could not load session video: ${path}`));
+        video.src = pathToFileURL(path).toString();
+    });
+}
+
+// HTMLMediaElement.seeked does not fire if currentTime is set to a value the element considers
+// unchanged (already-current time, or a time outside [0, duration] getting clamped to where it
+// already was) - both are common here since many consecutive export frames can map to the same
+// or an out-of-range video time. A short timeout treats "nothing happened" the same as "arrived".
+function seekCameraVideo(video: HTMLVideoElement, seconds: number): Promise<void> {
+    const clamped = Math.max(0, Math.min(seconds, Math.max(video.duration - 0.05, 0)));
+    if (Math.abs(video.currentTime - clamped) < 0.02) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+            if (!done) {
+                done = true;
+                video.removeEventListener('seeked', finish);
+                resolve();
+            }
+        };
+        video.addEventListener('seeked', finish);
+        video.currentTime = clamped;
+        // Fallback in case 'seeked' never fires for this browser/codec combination.
+        setTimeout(finish, 500);
+    });
+}
+
+// decodeAudioData() turned out to be unreliable for these recordings: MediaRecorder never goes
+// back and rewrites the file with a proper duration/seek index once it stops, and Chromium's
+// offline audio decoder is far stricter about that than <video> playback is - it can throw or
+// silently return nothing for exactly the WebM files this app records, even though the very same
+// file plays back fine as a <video> (proven by the camera panel, which reads this same file).
+// This decodes it the same way playback does instead: play the muted, off-DOM camera video in real
+// time and capture what a MediaElementAudioSourceNode actually produces, rather than parsing the
+// container directly. That does mean this takes as long as the recording itself.
+async function loadSessionAudio(
+    video: HTMLVideoElement, onProgress: (fraction: number) => void,
+): Promise<AudioBuffer | undefined> {
+    const audioCtx = new AudioContext();
     try {
-        const bytes = await fs.promises.readFile(path);
-        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-        const audioCtx = new AudioContext();
-        try {
-            return await audioCtx.decodeAudioData(arrayBuffer);
-        } finally {
-            await audioCtx.close();
+        const source = audioCtx.createMediaElementSource(video);
+        const bufferSize = 4096;
+        const processor = audioCtx.createScriptProcessor(bufferSize, AUDIO_CHANNEL_COUNT, AUDIO_CHANNEL_COUNT);
+        const chunks: Float32Array[][] = Array.from({length: AUDIO_CHANNEL_COUNT}, () => []);
+        processor.onaudioprocess = (ev) => {
+            for (let ch = 0; ch < AUDIO_CHANNEL_COUNT; ch++) {
+                chunks[ch].push(new Float32Array(ev.inputBuffer.getChannelData(ch)));
+            }
+        };
+        // The processor only receives audioprocess callbacks while it is part of a live graph that
+        // reaches the destination - routing it through a zero-gain node keeps the captured audio
+        // from actually being audible during export.
+        const silence = audioCtx.createGain();
+        silence.gain.value = 0;
+        source.connect(processor);
+        processor.connect(silence);
+        silence.connect(audioCtx.destination);
+
+        video.currentTime = 0;
+        const ended = new Promise<void>((resolve) => {
+            video.addEventListener('ended', () => resolve(), {once: true});
+        });
+        const onTimeUpdate = () => {
+            if (isFinite(video.duration) && video.duration > 0) {
+                onProgress(Math.min(1, video.currentTime / video.duration));
+            }
+        };
+        video.addEventListener('timeupdate', onTimeUpdate);
+        await video.play();
+        await ended;
+        video.removeEventListener('timeupdate', onTimeUpdate);
+
+        processor.disconnect();
+        source.disconnect();
+        video.pause();
+        onProgress(1);
+
+        const totalFrames = chunks[0].reduce((sum, c) => sum + c.length, 0);
+        if (totalFrames === 0) {
+            return undefined;
         }
+        const buffer = audioCtx.createBuffer(AUDIO_CHANNEL_COUNT, totalFrames, audioCtx.sampleRate);
+        for (let ch = 0; ch < AUDIO_CHANNEL_COUNT; ch++) {
+            const out = buffer.getChannelData(ch);
+            let offset = 0;
+            for (const chunk of chunks[ch]) {
+                out.set(chunk, offset);
+                offset += chunk.length;
+            }
+        }
+        return buffer;
     } catch (e) {
-        console.error('Decoding session audio for export', e);
+        console.error('Extracting session audio for export', e);
         return undefined;
+    } finally {
+        await audioCtx.close();
     }
 }
 
@@ -134,75 +249,39 @@ async function encodeSessionAudio(
     audioEncoder.close();
 }
 
-// Loads a video file into an off-DOM element and waits until seeking it is possible. Never
-// attached to the document and never played - only ever used as a drawImage() source.
-function loadCameraVideo(path: string): Promise<HTMLVideoElement> {
-    return new Promise((resolve, reject) => {
-        const video = document.createElement('video');
-        video.muted = true;
-        video.preload = 'auto';
-        video.onloadedmetadata = () => resolve(video);
-        video.onerror = () => reject(new Error(`Could not load session video: ${path}`));
-        video.src = pathToFileURL(path).toString();
-    });
-}
-
-// HTMLMediaElement.seeked does not fire if currentTime is set to a value the element considers
-// unchanged (already-current time, or a time outside [0, duration] getting clamped to where it
-// already was) - both are common here since many consecutive export frames can map to the same
-// or an out-of-range video time. A short timeout treats "nothing happened" the same as "arrived".
-function seekCameraVideo(video: HTMLVideoElement, seconds: number): Promise<void> {
-    const clamped = Math.max(0, Math.min(seconds, Math.max(video.duration - 0.05, 0)));
-    if (Math.abs(video.currentTime - clamped) < 0.02) {
-        return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-        let done = false;
-        const finish = () => {
-            if (!done) {
-                done = true;
-                video.removeEventListener('seeked', finish);
-                resolve();
-            }
-        };
-        video.addEventListener('seeked', finish);
-        video.currentTime = clamped;
-        // Fallback in case 'seeked' never fires for this browser/codec combination.
-        setTimeout(finish, 500);
-    });
-}
-
 function drawCameraPanel(
     ctx: CanvasRenderingContext2D, video: HTMLVideoElement | undefined, startX: number, showFrame: boolean,
+    layout: Layout,
 ) {
     ctx.save();
     ctx.fillStyle = '#fff';
-    ctx.fillRect(startX, 0, CAMERA_PANEL_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(startX, 0, layout.cameraPanelWidth, layout.canvasHeight);
     if (video && showFrame && video.videoWidth > 0) {
         // Letterboxed rather than stretched or cropped - the point of including the camera is to
         // see what actually happened, distorting or cutting off the picture would work against that.
-        const scale = Math.min(CAMERA_PANEL_WIDTH / video.videoWidth, CANVAS_HEIGHT / video.videoHeight);
+        const scale = Math.min(layout.cameraPanelWidth / video.videoWidth, layout.canvasHeight / video.videoHeight);
         const w = video.videoWidth * scale;
         const h = video.videoHeight * scale;
-        ctx.drawImage(video, startX + (CAMERA_PANEL_WIDTH - w) / 2, (CANVAS_HEIGHT - h) / 2, w, h);
+        ctx.drawImage(video, startX + (layout.cameraPanelWidth - w) / 2, (layout.canvasHeight - h) / 2, w, h);
     } else {
         ctx.fillStyle = '#666';
-        ctx.font = '14px sans-serif';
+        ctx.font = `${Math.round(14 * layout.fontScale)}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText('No camera footage yet', startX + CAMERA_PANEL_WIDTH / 2, CANVAS_HEIGHT / 2);
+        ctx.fillText('No camera footage yet', startX + layout.cameraPanelWidth / 2, layout.canvasHeight / 2);
         ctx.textAlign = 'left';
     }
     ctx.restore();
 }
 
 async function drawFrame(
-    ctx: CanvasRenderingContext2D, source: VideoExportSource, elapsed: number, cameraVideo?: HTMLVideoElement,
+    ctx: CanvasRenderingContext2D, source: VideoExportSource, elapsed: number, layout: Layout,
+    cameraVideo?: HTMLVideoElement,
 ) {
     const state = source.stateAtTime(elapsed);
-    const scopeWidth = CANVAS_WIDTH - LEGEND_WIDTH;
+    const canvasWidth = layout.scopeWidth + layout.legendWidth + (source.video ? layout.cameraPanelWidth : 0);
 
     ctx.fillStyle = scopeColors.background;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, canvasWidth, layout.canvasHeight);
 
     if (source.video) {
         // Negative until the camera actually started (getUserMedia is slower than the session
@@ -211,39 +290,40 @@ async function drawFrame(
         if (cameraVideo && videoSeconds >= 0) {
             await seekCameraVideo(cameraVideo, videoSeconds);
         }
-        drawCameraPanel(ctx, cameraVideo, CANVAS_WIDTH, videoSeconds >= 0);
+        drawCameraPanel(ctx, cameraVideo, layout.scopeWidth + layout.legendWidth, videoSeconds >= 0, layout);
     }
 
     ctx.fillStyle = '#888';
-    ctx.font = '16px sans-serif';
-    ctx.fillText(`t = ${state.time.toFixed(3)} s`, 8, 24);
+    ctx.font = `${Math.round(16 * layout.fontScale)}px sans-serif`;
+    ctx.fillText(`t = ${state.time.toFixed(3)} s`, 8, Math.round(24 * layout.fontScale));
 
     ctx.save();
-    ctx.translate(0, TOP_MARGIN);
-    Traces.drawGrid(ctx, scopeWidth, SCOPE_HEIGHT);
+    ctx.translate(0, layout.topMargin);
+    Traces.drawGrid(ctx, layout.scopeWidth, layout.scopeHeight);
     for (const trace of state.traces) {
-        Traces.drawTrace(trace.config, trace.data, ctx, scopeWidth, SCOPE_HEIGHT);
+        Traces.drawTrace(trace.config, trace.data, ctx, layout.scopeWidth, layout.scopeHeight);
     }
     ctx.restore();
 
-    let legendY = TOP_MARGIN + 4;
-    ctx.font = 'bold 13px sans-serif';
+    let legendY = layout.topMargin + Math.round(4 * layout.fontScale);
+    const legendLineHeight = Math.round(16 * layout.fontScale);
+    ctx.font = `bold ${Math.round(13 * layout.fontScale)}px sans-serif`;
     for (const trace of state.traces) {
         const currentValue = trace.data.length > 0 ? trace.data[trace.data.length - 1] : undefined;
         ctx.fillStyle = trace.config.wavecolor;
-        ctx.fillText(trace.config.name, scopeWidth + 10, legendY);
-        legendY += 16;
+        ctx.fillText(trace.config.name, layout.scopeWidth + 10, legendY);
+        legendY += legendLineHeight;
         ctx.fillText(
             `${currentValue !== undefined ? currentValue.toFixed(2) : '-'} ${trace.config.unit}`,
-            scopeWidth + 10, legendY,
+            layout.scopeWidth + 10, legendY,
         );
-        legendY += 16;
-        ctx.fillText(`${trace.config.perDiv.toFixed(2)} ${trace.config.unit} / div`, scopeWidth + 10, legendY);
-        legendY += 22;
+        legendY += legendLineHeight;
+        ctx.fillText(`${trace.config.perDiv.toFixed(2)} ${trace.config.unit} / div`, layout.scopeWidth + 10, legendY);
+        legendY += Math.round(22 * layout.fontScale);
     }
 
-    let gaugeY = TOP_MARGIN + SCOPE_HEIGHT + 22;
-    ctx.font = '13px sans-serif';
+    let gaugeY = layout.topMargin + layout.scopeHeight + Math.round(22 * layout.fontScale);
+    ctx.font = `${Math.round(13 * layout.fontScale)}px sans-serif`;
     ctx.fillStyle = '#888';
     const gaugeLine = state.gauges.map((g) => `${g.config.name}: ${g.value.toFixed(2)}`).join('   ');
     ctx.fillText(gaugeLine, 8, gaugeY);
@@ -252,24 +332,42 @@ async function drawFrame(
 // Encodes frames with WebCodecs as fast as the CPU allows (no waiting on wall-clock time like
 // MediaRecorder/captureStream would) while still tagging each frame with the correct timestamp,
 // so the resulting video plays back at the right speed even though producing it was much faster.
+// The session audio (when included) is the one part that can't be sped up the same way - see
+// loadSessionAudio() - so it gets its own share of the progress range further down.
 export async function exportTelemetryVideo(
     source: VideoExportSource,
+    options: ExportOptions,
     onProgress: (fraction: number) => void,
 ): Promise<Blob> {
+    const fps = options.fps;
+    const {width: baseWidth, height: canvasHeight} = RESOLUTIONS[options.resolution];
+    const scale = canvasHeight / BASE_CANVAS_HEIGHT;
     const includeCamera = source.video !== undefined;
-    const canvasWidth = CANVAS_WIDTH + (includeCamera ? CAMERA_PANEL_WIDTH : 0);
+    const layout: Layout = {
+        cameraPanelWidth: Math.round(BASE_CAMERA_PANEL_WIDTH * scale),
+        canvasHeight,
+        fontScale: scale,
+        legendWidth: Math.round(BASE_LEGEND_WIDTH * scale),
+        scopeHeight: Math.round(BASE_SCOPE_HEIGHT * scale),
+        scopeWidth: baseWidth - Math.round(BASE_LEGEND_WIDTH * scale),
+        topMargin: Math.round(BASE_TOP_MARGIN * scale),
+    };
+    const canvasWidth = layout.scopeWidth + layout.legendWidth + (includeCamera ? layout.cameraPanelWidth : 0);
     const canvas = document.createElement('canvas');
     canvas.width = canvasWidth;
-    canvas.height = CANVAS_HEIGHT;
+    canvas.height = canvasHeight;
     const ctx = canvas.getContext('2d');
 
     // Loaded once up front rather than per frame - repeatedly creating/loading a <video> element
     // would dwarf the cost of the seeks themselves.
     const cameraVideo = source.video ? await loadCameraVideo(source.video.path) : undefined;
-    // Decoded separately from the <video> element above: reading frames back out of an
-    // HTMLVideoElement's audio track isn't something the DOM exposes, so the same file is decoded
-    // a second time, this time as audio, via the Web Audio API.
-    const sessionAudio = source.video ? await loadSessionAudio(source.video.path) : undefined;
+    // Extracting the audio track plays the whole recording back in real time (see loadSessionAudio),
+    // so it gets a share of the progress bar proportional to roughly how long that actually takes
+    // relative to the (much faster) frame encoding loop below.
+    const audioProgressShare = includeCamera ? 0.3 : 0;
+    const sessionAudio = cameraVideo
+        ? await loadSessionAudio(cameraVideo, (f) => onProgress(f * audioProgressShare))
+        : undefined;
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
@@ -283,43 +381,48 @@ export async function exportTelemetryVideo(
         target,
         video: {
             codec: 'avc',
-            frameRate: FPS,
-            height: CANVAS_HEIGHT,
+            frameRate: fps,
+            height: canvasHeight,
             width: canvasWidth,
         },
     });
 
+    const areaScale = scale * scale;
+    const videoBitrate = Math.round(
+        (includeCamera ? BASE_VIDEO_BITRATE_WITH_CAMERA : BASE_VIDEO_BITRATE) * areaScale,
+    );
     const videoEncoder = new VideoEncoder({
         error: (e) => console.error('Video export encoding error:', e),
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     });
     videoEncoder.configure({
         // H.264 Baseline profile, level 3.1 - widely supported, cheap to encode in software.
-        bitrate: includeCamera ? VIDEO_BITRATE_WITH_CAMERA : VIDEO_BITRATE,
+        bitrate: videoBitrate,
         codec: 'avc1.42001f',
-        framerate: FPS,
-        height: CANVAS_HEIGHT,
+        framerate: fps,
+        height: canvasHeight,
         width: canvasWidth,
     });
 
     const totalDuration = Math.max(source.totalDurationSeconds, 0.1);
-    const frameIntervalSeconds = 1 / FPS;
+    const frameIntervalSeconds = 1 / fps;
     const totalFrames = Math.max(1, Math.ceil(totalDuration / frameIntervalSeconds));
+    const keyframeIntervalFrames = Math.max(1, Math.round(fps * KEYFRAME_INTERVAL_SECONDS));
 
     for (let i = 0; i < totalFrames; i++) {
         const t = Math.min(i * frameIntervalSeconds, totalDuration);
         // Seeking the camera video is genuinely asynchronous (unlike the pure-canvas chart draw),
         // so this loop can no longer run flat out - the periodic yield below is still needed for
         // the progress display, but is no longer what's keeping the UI responsive.
-        await drawFrame(ctx, source, t, cameraVideo);
+        await drawFrame(ctx, source, t, layout, cameraVideo);
         const timestampMicros = Math.round(i * frameIntervalSeconds * 1e6);
         const frame = new VideoFrame(canvas, {
             duration: Math.round(frameIntervalSeconds * 1e6),
             timestamp: timestampMicros,
         });
-        videoEncoder.encode(frame, {keyFrame: i % KEYFRAME_INTERVAL_FRAMES === 0});
+        videoEncoder.encode(frame, {keyFrame: i % keyframeIntervalFrames === 0});
         frame.close();
-        onProgress((i + 1) / totalFrames);
+        onProgress(audioProgressShare + (1 - audioProgressShare) * (i + 1) / totalFrames);
 
         // Yield periodically so the progress display stays responsive; the encoder queue is
         // otherwise free to run flat out.
