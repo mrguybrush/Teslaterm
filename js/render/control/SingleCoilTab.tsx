@@ -106,7 +106,7 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                                 size={'sm'}
                                 onClick={() => this.setState({bottomPanel: BottomPanelMode.video})}
                             >
-                                Video
+                                Flight Session
                             </Button>
                             <Button
                                 variant={bottomPanel === BottomPanelMode.piano ? 'primary' : 'secondary'}
