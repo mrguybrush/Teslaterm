@@ -1,5 +1,5 @@
 import React from "react";
-import {Button} from "react-bootstrap";
+import {Button, Form} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
 import {MeterConfig} from "../../common/IPCConstantsToRenderer";
@@ -40,6 +40,7 @@ export interface TelemetryTabState {
     exporting: boolean;
     exportProgress: number;
     playing: boolean;
+    includeVideoInExport: boolean;
 }
 
 export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabState> {
@@ -134,6 +135,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
             chartStates,
             exportProgress: 0,
             exporting: false,
+            includeVideoInExport: false,
             lastIndexToShow: 0,
             playing: false,
             telemetryStates: states,
@@ -241,6 +243,14 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                             ? `Exporting… ${Math.round(this.state.exportProgress * 100)}%`
                             : 'Export as video'}
                     </Button>
+                    {this.props.events.videoPath && <Form.Check
+                        type={'checkbox'}
+                        id={'export-include-video'}
+                        label={'Include session video'}
+                        checked={this.state.includeVideoInExport}
+                        disabled={this.state.exporting}
+                        onChange={(ev) => this.setState({includeVideoInExport: ev.target.checked})}
+                    />}
                 </div>
                 <div className='tt-fr-telemetry-display'>
                     <div className={'tt-fr-scope'}>
@@ -293,12 +303,24 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 );
                 cachedCursor = cursor;
             }
-            return {gauges: telemetryState.gauges, time: telemetryState.time, traces: cachedTraces};
+            return {
+                epochMs: this.endTimeMs + telemetryState.time * 1000,
+                gauges: telemetryState.gauges,
+                time: telemetryState.time,
+                traces: cachedTraces,
+            };
         };
+        const {videoPath, videoStartEpochMs} = this.props.events;
+        const includeVideo = this.state.includeVideoInExport && videoPath !== undefined
+            && videoStartEpochMs !== undefined;
         this.setState({exportProgress: 0, exporting: true});
         try {
             const blob = await exportTelemetryVideo(
-                {stateAtTime, totalDurationSeconds},
+                {
+                    stateAtTime,
+                    totalDurationSeconds,
+                    video: includeVideo ? {path: videoPath, startEpochMs: videoStartEpochMs} : undefined,
+                },
                 (fraction) => this.setState({exportProgress: fraction}),
             );
             downloadBlob(blob, `flight-recording-${Date.now()}.mp4`);

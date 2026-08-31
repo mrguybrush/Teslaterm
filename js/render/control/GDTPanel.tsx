@@ -5,10 +5,12 @@ import {TTComponent} from "../TTComponent";
 
 // The UD3 sends these as ordinary meters. They are looked up by name rather than by meter id so a
 // reshuffle of the gauge slots in the firmware does not silently point this panel at the wrong
-// channel. Ontime_eff and Period_eff are read straight out of int1_prd/int1_cmp, i.e. after the
+// channel. Ontime_eff and Pulse_eff are read straight out of int1_prd/int1_cmp, i.e. after the
 // duty limiter, the compressor and every clamp - they are what the coil actually switches.
 const METER_ONTIME = 'Ontime_eff';
-const METER_PERIOD = 'Period_eff';
+// Named Pulse_eff, not Period_eff: the register holds offtime + ontime, not the note spacing.
+const METER_PULSE = 'Pulse_eff';
+const METER_DUTY = 'Dutycycle';
 const METER_FRES = 'Fres';
 
 interface GDTPanelProps {
@@ -19,7 +21,10 @@ interface GDTPanelProps {
 interface GDTPanelState {
     // microseconds
     ontime: number;
-    period: number;
+    // offtime + ontime, i.e. the pulse itself
+    pulse: number;
+    // percent, used to derive the note spacing
+    duty: number;
     // kHz
     fres: number;
     // how much of the pulse period the window shows, 1 = everything
@@ -51,9 +56,10 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
         this.state = {
             everReceived: false,
             fres: 0,
+            duty: 0,
             offset: 0,
             ontime: 0,
-            period: 0,
+            pulse: 0,
             zoom: 1,
         };
     }
@@ -71,8 +77,10 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
                 if (name === METER_ONTIME) {
                     next.ontime = raw / 10;
                     next.everReceived = true;
-                } else if (name === METER_PERIOD) {
-                    next.period = raw / 10;
+                } else if (name === METER_PULSE) {
+                    next.pulse = raw / 10;
+                } else if (name === METER_DUTY) {
+                    next.duty = raw / 10;
                 } else if (name === METER_FRES) {
                     next.fres = raw / 10;
                 }
@@ -87,55 +95,72 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
         if (!this.props.visible) {
             return <></>;
         }
-        const {ontime, period, fres, zoom, everReceived} = this.state;
+        const {zoom, everReceived} = this.state;
 
         if (!everReceived) {
-            return <div className={'tt-scope-container'} style={{padding: '18px'}}>
-                Waiting for the UD3 to report its switching times. This panel needs firmware that
-                sends the <code>Ontime_eff</code> and <code>Period_eff</code> channels.
+            return <div className={'tt-gdt-panel'}>
+                <div className={'tt-gdt-hint'}>
+                    Waiting for the UD3 to report its switching times. This panel needs firmware
+                    that sends the <code>Ontime_eff</code> and <code>Pulse_eff</code> channels.
+                </div>
             </div>;
         }
 
-        const windowUs = Math.max(period * zoom, 0.2);
-        const offset = Math.min(this.state.offset, Math.max(period - windowUs, 0));
+        const span = this.spanUs();
+        const windowUs = Math.max(span * zoom, 0.2);
+        const offset = Math.min(this.state.offset, Math.max(span - windowUs, 0));
         const toX = (us: number) => LEFT + ((us - offset) / windowUs) * (PLOT_W - LEFT - RIGHT);
 
         const height = TOP + 2 * ROW_H + GAP + 46;
 
-        return <div className={'tt-scope-container'} style={{padding: '10px 12px 4px', overflowX: 'auto'}}>
+        return <div className={'tt-gdt-panel'}>
             {this.renderReadout()}
-            <svg
-                ref={this.svgRef}
-                viewBox={`0 0 ${PLOT_W} ${height}`}
-                style={{width: '100%', height: 'auto', display: 'block', touchAction: 'pan-y'}}
-                onMouseMove={(e) => this.onMove(e, windowUs, offset)}
-                onMouseLeave={() => this.setState({cursorUs: undefined})}
-                onWheel={(e) => this.onWheel(e, windowUs, offset)}
-            >
-                {this.renderGrid(toX, windowUs, offset, height)}
-                {this.renderGate(toX, 'GDT1', TOP, false)}
-                {this.renderGate(toX, 'GDT2', TOP + ROW_H + GAP, true)}
-                {this.renderCursor(toX, height)}
-            </svg>
+            <div className={'tt-gdt-plot'}>
+                <svg
+                    ref={this.svgRef}
+                    viewBox={`0 0 ${PLOT_W} ${height}`}
+                    preserveAspectRatio={'none'}
+                    onMouseMove={(e) => this.onMove(e, windowUs, offset)}
+                    onMouseLeave={() => this.setState({cursorUs: undefined})}
+                    onWheel={(e) => this.onWheel(e, windowUs, offset)}
+                >
+                    {this.renderGrid(toX, windowUs, offset, height)}
+                    {this.renderGate(toX, 'GDT1', TOP, false)}
+                    {this.renderGate(toX, 'GDT2', TOP + ROW_H + GAP, true)}
+                    {this.renderCursor(toX, height)}
+                </svg>
+            </div>
             {this.renderControls(windowUs)}
         </div>;
     }
 
+    // How much time the plot covers when fully zoomed out. The UD3 reports the pulse itself
+    // (offtime + ontime), not the gap to the next note, so the repetition period is derived from
+    // the duty cycle where that is available - otherwise there is nothing but the pulse to show.
+    private spanUs(): number {
+        const {ontime, duty} = this.state;
+        if (duty > 0 && ontime > 0) {
+            return Math.max(ontime / (duty / 100), this.state.pulse);
+        }
+        return Math.max(this.state.pulse, 1);
+    }
+
     private renderReadout() {
-        const {ontime, period, fres} = this.state;
-        const dutyPct = period > 0 ? (ontime / period) * 100 : 0;
+        const {ontime, pulse, duty, fres} = this.state;
+        const span = this.spanUs();
         const cycleUs = fres > 0 ? 1000 / fres : 0;
         const cycles = cycleUs > 0 ? ontime / cycleUs : 0;
-        const cell = (k: string, v: string) => <div style={{minWidth: '96px'}}>
-            <div style={{fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', opacity: .6}}>{k}</div>
-            <div style={{fontFamily: 'monospace', fontSize: '15px', fontWeight: 600}}>{v}</div>
+        const cell = (k: string, v: string) => <div>
+            <div className={'k'}>{k}</div>
+            <div className={'v'}>{v}</div>
         </div>;
-        return <div style={{display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '8px'}}>
+        return <div className={'tt-gdt-readout'}>
             {cell('Ontime', ontime.toFixed(1) + ' µs')}
-            {cell('Period', period.toFixed(1) + ' µs')}
-            {cell('Offtime', Math.max(period - ontime, 0).toFixed(1) + ' µs')}
-            {cell('Rate', period > 0 ? (1000 / period).toFixed(2) + ' kHz' : '—')}
-            {cell('Duty', dutyPct.toFixed(2) + ' %')}
+            {cell('Offtime', Math.max(pulse - ontime, 0).toFixed(1) + ' µs')}
+            {/* derived from the duty, since the UD3 reports the pulse and not the note spacing */}
+            {cell('Note period', duty > 0 ? span.toFixed(0) + ' µs' : '—')}
+            {cell('Note rate', duty > 0 && span > 0 ? (1e6 / span).toFixed(0) + ' Hz' : '—')}
+            {cell('Duty', duty > 0 ? duty.toFixed(1) + ' %' : '—')}
             {cell('Fres', fres > 0 ? fres.toFixed(1) + ' kHz' : '—')}
             {cell('Cycles', cycles > 0 ? cycles.toFixed(1) : '—')}
         </div>;
@@ -165,7 +190,7 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
 
         let d: string;
         if (cycleUs <= 0 || ontime <= 0) {
-            d = `M${toX(0)} ${bottom} L${toX(this.state.period)} ${bottom}`;
+            d = `M${toX(0)} ${bottom} L${toX(this.spanUs())} ${bottom}`;
         } else {
             const pts: string[] = [];
             let level = invert ? bottom : top;
@@ -185,7 +210,7 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
             }
             // after the burst both halves rest low until the next pulse
             pts.push(`L${toX(ontime)} ${bottom}`);
-            pts.push(`L${toX(this.state.period)} ${bottom}`);
+            pts.push(`L${toX(this.spanUs())} ${bottom}`);
             d = pts.join(' ');
         }
 
@@ -213,8 +238,8 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
     }
 
     private renderControls(windowUs: number) {
-        const {period, zoom} = this.state;
-        const maxOffset = Math.max(period - windowUs, 0);
+        const {zoom} = this.state;
+        const maxOffset = Math.max(this.spanUs() - windowUs, 0);
         return <div style={{display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap', marginTop: '4px'}}>
             <label style={{display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px'}}>
                 Zoom
@@ -269,8 +294,8 @@ export class GDTPanel extends TTComponent<GDTPanelProps, GDTPanelState> {
         const anchor = offset + frac * windowUs;
         const factor = e.deltaY > 0 ? 1.25 : 0.8;
         const newZoom = Math.min(Math.max(this.state.zoom * factor, 1e-4), 1);
-        const newWindow = Math.max(this.state.period * newZoom, 0.2);
-        const newOffset = Math.min(Math.max(anchor - frac * newWindow, 0), Math.max(this.state.period - newWindow, 0));
+        const newWindow = Math.max(this.spanUs() * newZoom, 0.2);
+        const newOffset = Math.min(Math.max(anchor - frac * newWindow, 0), Math.max(this.spanUs() - newWindow, 0));
         this.setState({offset: newOffset, zoom: newZoom});
     }
 }

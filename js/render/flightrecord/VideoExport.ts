@@ -1,4 +1,5 @@
 import {ArrayBufferTarget, Muxer} from "mp4-muxer";
+import {pathToFileURL} from "url";
 import {GaugeProps} from "../control/gauges/Gauge";
 import {scopeColors} from "../control/scope/ScopeColors";
 import {OscilloscopeTrace} from "../control/scope/Trace";
@@ -13,29 +14,115 @@ const FPS = 10;
 // small file size: a low bitrate plus infrequent keyframes let H.264's inter-frame compression do
 // most of the work, since consecutive frames of a slowly-moving chart are mostly identical.
 const VIDEO_BITRATE = 250_000;
+// Real camera footage does not compress nearly as well as a mostly-static line chart, so the panel
+// gets a much larger bitrate share whenever it is included.
+const VIDEO_BITRATE_WITH_CAMERA = 2_000_000;
 const KEYFRAME_INTERVAL_FRAMES = FPS * 3;
 const SCOPE_HEIGHT = 380;
 const LEGEND_WIDTH = 220;
 const TOP_MARGIN = 36;
+// Width of the extra panel added to the right of the scope when a session video is included.
+const CAMERA_PANEL_WIDTH = 360;
 
 export interface VideoExportState {
     time: number;
     traces: OscilloscopeTrace[];
     gauges: GaugeProps[];
+    // Absolute wall-clock time (Date.now()-style ms) this state represents. Only needed to line up
+    // the session video, which is timestamped separately from the telemetry - see SessionVideo.tsx.
+    epochMs: number;
 }
 
 export interface VideoExportSource {
     totalDurationSeconds: number;
     // Returns the display state (traces + gauges) that should be visible at the given time.
     stateAtTime: (seconds: number) => VideoExportState;
+    // Present only when the "include session video" checkbox was on and this session has one.
+    video?: {
+        path: string;
+        startEpochMs: number;
+    };
 }
 
-function drawFrame(ctx: CanvasRenderingContext2D, source: VideoExportSource, elapsed: number) {
+// Loads a video file into an off-DOM element and waits until seeking it is possible. Never
+// attached to the document and never played - only ever used as a drawImage() source.
+function loadCameraVideo(path: string): Promise<HTMLVideoElement> {
+    return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.preload = 'auto';
+        video.onloadedmetadata = () => resolve(video);
+        video.onerror = () => reject(new Error(`Could not load session video: ${path}`));
+        video.src = pathToFileURL(path).toString();
+    });
+}
+
+// HTMLMediaElement.seeked does not fire if currentTime is set to a value the element considers
+// unchanged (already-current time, or a time outside [0, duration] getting clamped to where it
+// already was) - both are common here since many consecutive export frames can map to the same
+// or an out-of-range video time. A short timeout treats "nothing happened" the same as "arrived".
+function seekCameraVideo(video: HTMLVideoElement, seconds: number): Promise<void> {
+    const clamped = Math.max(0, Math.min(seconds, Math.max(video.duration - 0.05, 0)));
+    if (Math.abs(video.currentTime - clamped) < 0.02) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+            if (!done) {
+                done = true;
+                video.removeEventListener('seeked', finish);
+                resolve();
+            }
+        };
+        video.addEventListener('seeked', finish);
+        video.currentTime = clamped;
+        // Fallback in case 'seeked' never fires for this browser/codec combination.
+        setTimeout(finish, 500);
+    });
+}
+
+function drawCameraPanel(
+    ctx: CanvasRenderingContext2D, video: HTMLVideoElement | undefined, startX: number, showFrame: boolean,
+) {
+    ctx.save();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(startX, 0, CAMERA_PANEL_WIDTH, CANVAS_HEIGHT);
+    if (video && showFrame && video.videoWidth > 0) {
+        // Letterboxed rather than stretched or cropped - the point of including the camera is to
+        // see what actually happened, distorting or cutting off the picture would work against that.
+        const scale = Math.min(CAMERA_PANEL_WIDTH / video.videoWidth, CANVAS_HEIGHT / video.videoHeight);
+        const w = video.videoWidth * scale;
+        const h = video.videoHeight * scale;
+        ctx.drawImage(video, startX + (CAMERA_PANEL_WIDTH - w) / 2, (CANVAS_HEIGHT - h) / 2, w, h);
+    } else {
+        ctx.fillStyle = '#666';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No camera footage yet', startX + CAMERA_PANEL_WIDTH / 2, CANVAS_HEIGHT / 2);
+        ctx.textAlign = 'left';
+    }
+    ctx.restore();
+}
+
+async function drawFrame(
+    ctx: CanvasRenderingContext2D, source: VideoExportSource, elapsed: number, cameraVideo?: HTMLVideoElement,
+) {
     const state = source.stateAtTime(elapsed);
     const scopeWidth = CANVAS_WIDTH - LEGEND_WIDTH;
 
     ctx.fillStyle = scopeColors.background;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    if (source.video) {
+        // Negative until the camera actually started (getUserMedia is slower than the session
+        // start it belongs to - see FlightVideoRecorder) - nothing to seek to yet in that case.
+        const videoSeconds = (state.epochMs - source.video.startEpochMs) / 1000;
+        if (cameraVideo && videoSeconds >= 0) {
+            await seekCameraVideo(cameraVideo, videoSeconds);
+        }
+        drawCameraPanel(ctx, cameraVideo, CANVAS_WIDTH, videoSeconds >= 0);
+    }
 
     ctx.fillStyle = '#888';
     ctx.font = '16px sans-serif';
@@ -79,10 +166,16 @@ export async function exportTelemetryVideo(
     source: VideoExportSource,
     onProgress: (fraction: number) => void,
 ): Promise<Blob> {
+    const includeCamera = source.video !== undefined;
+    const canvasWidth = CANVAS_WIDTH + (includeCamera ? CAMERA_PANEL_WIDTH : 0);
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_WIDTH;
+    canvas.width = canvasWidth;
     canvas.height = CANVAS_HEIGHT;
     const ctx = canvas.getContext('2d');
+
+    // Loaded once up front rather than per frame - repeatedly creating/loading a <video> element
+    // would dwarf the cost of the seeks themselves.
+    const cameraVideo = source.video ? await loadCameraVideo(source.video.path) : undefined;
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
@@ -93,7 +186,7 @@ export async function exportTelemetryVideo(
             codec: 'avc',
             frameRate: FPS,
             height: CANVAS_HEIGHT,
-            width: CANVAS_WIDTH,
+            width: canvasWidth,
         },
     });
 
@@ -103,11 +196,11 @@ export async function exportTelemetryVideo(
     });
     videoEncoder.configure({
         // H.264 Baseline profile, level 3.1 - widely supported, cheap to encode in software.
-        bitrate: VIDEO_BITRATE,
+        bitrate: includeCamera ? VIDEO_BITRATE_WITH_CAMERA : VIDEO_BITRATE,
         codec: 'avc1.42001f',
         framerate: FPS,
         height: CANVAS_HEIGHT,
-        width: CANVAS_WIDTH,
+        width: canvasWidth,
     });
 
     const totalDuration = Math.max(source.totalDurationSeconds, 0.1);
@@ -116,7 +209,10 @@ export async function exportTelemetryVideo(
 
     for (let i = 0; i < totalFrames; i++) {
         const t = Math.min(i * frameIntervalSeconds, totalDuration);
-        drawFrame(ctx, source, t);
+        // Seeking the camera video is genuinely asynchronous (unlike the pure-canvas chart draw),
+        // so this loop can no longer run flat out - the periodic yield below is still needed for
+        // the progress display, but is no longer what's keeping the UI responsive.
+        await drawFrame(ctx, source, t, cameraVideo);
         const timestampMicros = Math.round(i * frameIntervalSeconds * 1e6);
         const frame = new VideoFrame(canvas, {
             duration: Math.round(frameIntervalSeconds * 1e6),

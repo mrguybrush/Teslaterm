@@ -424,3 +424,63 @@
 .bg-warning {
     color: black !important;
 }
+
+/* GDT panel. Deliberately not .tt-scope-container: that one is the oscilloscope's 76%/24% grid,
+   which squeezes a plot into the narrow column. */
+.tt-gdt-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow-y: auto;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+.tt-gdt-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    flex: 0 0 auto;
+}
+
+.tt-gdt-readout > div { min-width: 92px; }
+
+.tt-gdt-readout .k {
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.tt-gdt-readout .v {
+    font-family: monospace;
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The plot takes whatever height is left, so the panel fills the bottom area instead of
+   collapsing to the intrinsic size of the viewBox. */
+.tt-gdt-plot {
+    flex: 1 1 auto;
+    min-height: 160px;
+    width: 100%;
+}
+
+.tt-gdt-plot > svg { width: 100%; height: 100%; display: block; }
+
+.tt-gdt-controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    font-size: 12px;
+}
+
+.tt-gdt-controls label { display: flex; gap: 6px; align-items: center; margin: 0; }
+.tt-gdt-controls .mono { font-family: monospace; font-variant-numeric: tabular-nums; }
+.tt-gdt-hint { padding: 14px; color: var(--bs-secondary-color); }
