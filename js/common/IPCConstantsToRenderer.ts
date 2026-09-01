@@ -35,6 +35,8 @@ export const IPC_CONSTANTS_TO_RENDERER = {
         // MediaRecorder only exists in the renderer - so the renderer has to be told.
         sessionStarted: makeKey<FlightSessionVideoTarget>('flight-session-started'),
         sessionStopped: makeKey<undefined>('flight-session-stopped'),
+        // Reply to requestVideoSavePath; undefined when the save dialog was cancelled.
+        videoSavePath: makeKey<string | undefined>('flight-session-video-save-path'),
     },
     menu: {
         setMediaTitle: makeKey<string>('menu-media-title'),

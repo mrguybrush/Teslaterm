@@ -393,11 +393,14 @@ async function drawFrame(
 // so the resulting video plays back at the right speed even though producing it was much faster.
 // The session audio (when included) is the one part that can't be sped up the same way - see
 // loadSessionAudio() - so it gets its own share of the progress range further down.
+// Returns the finished MP4 as the muxer's own buffer rather than wrapping it in a Blob: a finished
+// export can run to hundreds of megabytes, and every additional full copy of it in the renderer's
+// heap is a real risk of the whole export dying right at the finish line.
 export async function exportTelemetryVideo(
     source: VideoExportSource,
     options: ExportOptions,
     onProgress: (fraction: number) => void,
-): Promise<Blob> {
+): Promise<ArrayBuffer> {
     const fps = options.fps;
     const {width: baseWidth, height: canvasHeight} = RESOLUTIONS[options.resolution];
     const scale = canvasHeight / BASE_CANVAS_HEIGHT;
@@ -503,5 +506,5 @@ export async function exportTelemetryVideo(
 
     muxer.finalize();
 
-    return new Blob([target.buffer], {type: 'video/mp4'});
+    return target.buffer;
 }

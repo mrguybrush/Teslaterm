@@ -1,12 +1,10 @@
 import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 import React from "react";
 import {Button, Form} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
-import {MeterConfig} from "../../common/IPCConstantsToRenderer";
+import {IPC_CONSTANTS_TO_RENDERER, MeterConfig} from "../../common/IPCConstantsToRenderer";
 import {FRDisplayData} from "../connect/ConnectScreen";
 import {Gauge, GaugeProps} from "../control/gauges/Gauge";
 import {applyRangeOverride, voltagePerDivFor} from "../control/scope/RangeOverride";
@@ -351,7 +349,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
             && videoStartEpochMs !== undefined;
         this.setState({exportError: undefined, exportProgress: 0, exporting: true});
         try {
-            const blob = await exportTelemetryVideo(
+            const video = await exportTelemetryVideo(
                 {
                     stateAtTime,
                     totalDurationSeconds,
@@ -360,7 +358,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 {fps: this.state.exportFps, resolution: this.state.exportResolution},
                 (fraction) => this.setState({exportProgress: fraction}),
             );
-            await this.saveExportedVideo(blob);
+            await this.saveExportedVideo(video);
         } catch (e) {
             // Without this, a failure here (e.g. the encoder rejecting an unsupported
             // resolution/frame rate combination) used to just silently reset the button - exporting
@@ -372,17 +370,35 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         }
     }
 
-    // The native save dialog is a main-process-only API, and the exported video only exists as an
-    // in-memory blob here (WebCodecs runs in the renderer) - so unlike opening/deleting a session,
-    // which just sends a filename that already exists on disk, this has to write the blob out to a
-    // temp file first and hand that off to the main process to move to wherever the user picks.
-    private async saveExportedVideo(blob: Blob) {
-        const tempPath = path.join(os.tmpdir(), `tt-video-export-${Date.now()}.mp4`);
-        const buffer = Buffer.from(await blob.arrayBuffer());
-        await fs.promises.writeFile(tempPath, buffer);
-        processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.exportVideo, {
-            suggestedName: `flight-recording-${Date.now()}.mp4`,
-            tempPath,
+    // Native dialogs only exist in the main process, so the destination has to be asked for over
+    // IPC - but the export itself stays here and is written straight to that path.
+    //
+    // It is deliberately never turned into a Blob or a single Buffer first: a Full HD export with
+    // camera footage runs to hundreds of megabytes, and each such copy sits in the renderer's heap
+    // next to the muxer's own. That is what killed the export right before this point - it aborted
+    // with no file and no dialog. Buffer.from(arrayBuffer, offset, length) is a *view*, so writing
+    // in slices through one handle copies nothing at all.
+    private async saveExportedVideo(video: ArrayBuffer) {
+        const filePath = await this.requestSavePath(`flight-recording-${Date.now()}.mp4`);
+        if (!filePath) {
+            return;
+        }
+        const handle = await fs.promises.open(filePath, 'w');
+        try {
+            const chunkSize = 8 * 1024 * 1024;
+            for (let offset = 0; offset < video.byteLength; offset += chunkSize) {
+                const length = Math.min(chunkSize, video.byteLength - offset);
+                await handle.write(Buffer.from(video, offset, length));
+            }
+        } finally {
+            await handle.close();
+        }
+    }
+
+    private requestSavePath(suggestedName: string): Promise<string | undefined> {
+        return new Promise((resolve) => {
+            processIPC.once(IPC_CONSTANTS_TO_RENDERER.flightRecorder.videoSavePath, resolve);
+            processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.requestVideoSavePath, suggestedName);
         });
     }
 
