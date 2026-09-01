@@ -3,6 +3,7 @@ import {UD3ConnectionType} from "../common/constants";
 import {ChannelID, ConnectionPreset} from "../common/IPCConstantsToRenderer";
 import {VolumeChannel, VolumeKey, VolumeUpdate} from "../common/MixerTypes";
 import {AdvancedOptions, PhysicalMixerType} from "../common/Options";
+import {DEFAULT_TRACE_COLORS} from "../common/ScopePalette";
 import {FullConnectionOptions, UD3ConnectionOptions} from "../common/SingleConnectionOptions";
 import {CoilMixerState, FullUIConfig, SavedMixerState, SyncedUIConfig} from "../common/UIConfig";
 import {getOptionalUD3Connection} from "./connection/connection";
@@ -114,7 +115,15 @@ function fixSyncedConfig(object: Partial<SyncedUIConfig>) {
         object.scopeGridColor = '#bfbfbf';
     }
     if (object.scopeTraceColors === undefined) {
-        object.scopeTraceColors = ['#ff3b3b', '#ffb703', '#00d68f', '#0d7fc4', '#a64dd6'];
+        object.scopeTraceColors = [...DEFAULT_TRACE_COLORS];
+    } else if (object.scopeTraceColors.length < DEFAULT_TRACE_COLORS.length) {
+        // Topped up rather than only filled in when missing entirely: a config saved before a trace
+        // was added keeps its shorter list forever otherwise, and the new trace then falls back to
+        // trace 0's colour. Existing entries are left alone so hand-picked colours survive.
+        object.scopeTraceColors = [
+            ...object.scopeTraceColors,
+            ...DEFAULT_TRACE_COLORS.slice(object.scopeTraceColors.length),
+        ];
     }
     if (object.scopeLineWidth === undefined) {
         object.scopeLineWidth = 2;

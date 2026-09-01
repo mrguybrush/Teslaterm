@@ -1,3 +1,5 @@
+import {DEFAULT_TRACE_COLORS} from "../../../common/ScopePalette";
+
 export interface ScopeColors {
     background: string;
     gridLine: string;
@@ -7,16 +9,9 @@ export interface ScopeColors {
     lineWidth: number;
 }
 
-export const DEFAULT_TRACE_COLORS: string[] = [
-    "#ff3b3b",
-    "#ffb703",
-    "#00d68f",
-    "#0d7fc4",
-    "#a64dd6",
-    // Trace 5 is the Ontime_eff curve derived from its dial (see DerivedTelemetry); without a
-    // colour of its own it would fall back to trace 0's red and be indistinguishable from Voltage.
-    "#00a8a8",
-];
+// Re-exported so the existing imports from here keep working; the list itself lives in common
+// because the stored UI config, which overrides it, is written by the main process.
+export {DEFAULT_TRACE_COLORS};
 
 export const DEFAULT_SCOPE_BACKGROUND = "#f0f0f0";
 export const DEFAULT_SCOPE_GRID_LINE = "#bfbfbf";
