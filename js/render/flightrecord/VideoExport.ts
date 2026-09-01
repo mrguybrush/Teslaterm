@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import {ArrayBufferTarget, Muxer} from "mp4-muxer";
 import {pathToFileURL} from "url";
+import {isShownAsDial} from "../../common/GaugeVisibility";
 import {GaugeProps} from "../control/gauges/Gauge";
 import {scopeColors} from "../control/scope/ScopeColors";
 import {OscilloscopeTrace} from "../control/scope/Trace";
@@ -321,11 +322,13 @@ function drawGauge(
 function drawGauges(
     ctx: CanvasRenderingContext2D, gauges: GaugeProps[], x: number, y: number, w: number, h: number, scale: number,
 ) {
-    if (gauges.length === 0) {
+    // Filtered before the width is divided up, so the hidden channels do not leave gaps.
+    const shown = gauges.filter((gauge) => gauge !== undefined && isShownAsDial(gauge.config.name));
+    if (shown.length === 0) {
         return;
     }
-    const cellWidth = w / gauges.length;
-    gauges.forEach((gauge, i) => drawGauge(ctx, gauge, x + i * cellWidth, y, cellWidth, h, scale));
+    const cellWidth = w / shown.length;
+    shown.forEach((gauge, i) => drawGauge(ctx, gauge, x + i * cellWidth, y, cellWidth, h, scale));
 }
 
 async function drawFrame(

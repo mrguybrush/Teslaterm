@@ -3,6 +3,7 @@ import React from "react";
 import {Button, Form} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
+import {isShownAsDial} from "../../common/GaugeVisibility";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER, MeterConfig} from "../../common/IPCConstantsToRenderer";
 import {FRDisplayData} from "../connect/ConnectScreen";
@@ -302,7 +303,9 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                         />
                     </div>
                     <div className={'tt-gauges'}>
-                        {state.gauges.map((p, i) => <Gauge {...p} key={i}/>)}
+                        {state.gauges
+                            .filter((p) => p !== undefined && isShownAsDial(p.config.name))
+                            .map((p, i) => <Gauge {...p} key={i}/>)}
                     </div>
                     {this.makeVideo(state)}
                 </div>

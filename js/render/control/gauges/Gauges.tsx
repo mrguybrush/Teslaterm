@@ -1,5 +1,6 @@
 import React from "react";
 import {CoilID} from "../../../common/constants";
+import {isShownAsDial} from "../../../common/GaugeVisibility";
 import {getToRenderIPCPerCoil, MeterConfig, SetMeters} from "../../../common/IPCConstantsToRenderer";
 import {TTComponent} from "../../TTComponent";
 import {Gauge, GaugeProps} from "./Gauge";
@@ -62,8 +63,11 @@ export class Gauges extends TTComponent<GaugesProps, GaugeState> {
     }
 
     public render(): React.ReactNode {
+        // Meter ids above this component's own slots leave gaps in the array (the UD3 numbers the
+        // GDT panel's channels well past the dials), so entries can legitimately be missing.
+        const shown = this.state.gauges.filter((p) => p !== undefined && isShownAsDial(p.config.name));
         return <div className={'tt-gauges'}>
-            {this.state.gauges.map((p, i) => <Gauge {...p} key={i}/>)}
+            {shown.map((p, i) => <Gauge {...p} key={p.config.meterId ?? i}/>)}
         </div>;
     }
 }

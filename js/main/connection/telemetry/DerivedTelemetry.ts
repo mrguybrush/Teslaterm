@@ -8,13 +8,15 @@ import {TelemetryFrame} from "../../../common/TelemetryTypes";
  * requiring a firmware rebuild and reflash - which would also leave every recording made before
  * that flash without the trace.
  *
+ * Nothing is dropped here: channels that should not get a dial of their own are still needed by the
+ * GDT panel, which looks meters up by name, so they are filtered where dials are drawn instead -
+ * see isShownAsDial in common/GaugeVisibility.
+ *
  * This lives in TelemetryChannel, the one point the live connection and the flight-recording parser
  * both pass through, so the live scope and recorded sessions (old ones included) behave the same.
  */
 
 const CHARTED_METER = 'Ontime_eff';
-// Both spellings: the firmware sources call it Pulse_eff, older flashed builds send Period_eff.
-const HIDDEN_METERS = ['Period_eff', 'Pulse_eff'];
 // The firmware assigns traces 0-4 itself; NUM_TRACES in Oscilloscope.tsx allows 7.
 const DERIVED_TRACE_ID = 5;
 // Only used until the UD3 reports its real limit in a state sync, which happens on connect.
@@ -25,7 +27,6 @@ export class DerivedTelemetry {
     // The raw counts the UD3 sends are in tenths of a microsecond; the dial's scale is what turns
     // them into the displayed value, and the trace has to divide by exactly the same amount.
     private chartedScale: number = 1;
-    private readonly hiddenMeterIds = new Set<number>();
     private maxOntimeUs: number = FALLBACK_MAX_ONTIME_US;
 
     /** Returns what to emit in place of `frame`: it alone, it plus a derived frame, or nothing. */
@@ -33,13 +34,6 @@ export class DerivedTelemetry {
         switch (frame.type) {
             case TelemetryEvent.GAUGE_CONF:
             case TelemetryEvent.GAUGE32_CONF:
-                if (HIDDEN_METERS.includes(frame.name)) {
-                    // Dropping the config is what actually hides it - without one the dial is never
-                    // created, so the values arriving for it have nowhere to land either.
-                    this.hiddenMeterIds.add(frame.meterId);
-                    return [];
-                }
-                this.hiddenMeterIds.delete(frame.meterId);
                 if (frame.name === CHARTED_METER) {
                     this.chartedMeterId = frame.meterId;
                     this.chartedScale = frame.scale;
@@ -48,9 +42,6 @@ export class DerivedTelemetry {
                 return [frame];
             case TelemetryEvent.GAUGE:
             case TelemetryEvent.GAUGE32:
-                if (this.hiddenMeterIds.has(frame.index)) {
-                    return [];
-                }
                 if (frame.index === this.chartedMeterId) {
                     return [frame, {type: TelemetryEvent.CHART, index: DERIVED_TRACE_ID, value: frame.value}];
                 }
