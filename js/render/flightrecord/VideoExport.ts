@@ -388,6 +388,13 @@ export async function exportTelemetryVideo(
         width: canvasWidth,
     });
 
+    // Where the export's t=0 falls inside the camera recording. Read here, before the frame loop,
+    // and NOT afterwards next to the audio encoding where it is actually used: stateAtTime walks a
+    // cursor that only ever moves forward, so once the loop has run, asking it for t=0 again returns
+    // the *last* state instead of the first. That put the audio's start a whole recording length
+    // past the end of the recording, which is why the exported file had no audio in it at all.
+    const exportStartEpochMs = source.stateAtTime(0).epochMs;
+
     const totalDuration = Math.max(source.totalDurationSeconds, 0.1);
     const frameIntervalSeconds = 1 / fps;
     const totalFrames = Math.max(1, Math.ceil(totalDuration / frameIntervalSeconds));
@@ -419,9 +426,7 @@ export async function exportTelemetryVideo(
     videoEncoder.close();
 
     if (sessionAudio && source.video) {
-        // Where the export's own t=0 falls inside the camera recording - the same reference point
-        // drawFrame() uses per-frame for the picture, needed here once for the whole audio track.
-        const offsetSeconds = (source.stateAtTime(0).epochMs - source.video.startEpochMs) / 1000;
+        const offsetSeconds = (exportStartEpochMs - source.video.startEpochMs) / 1000;
         await encodeSessionAudio(muxer, sessionAudio, offsetSeconds, totalDuration);
     }
 
