@@ -27,7 +27,7 @@ export class FlightRecordingScreen extends TTComponent<FRScreenProps, FRScreenSt
     public render() {
         return (
             <div className={'tt-fr-toplevel'}>
-                <Tab.Container defaultActiveKey="list">
+                <Tab.Container defaultActiveKey="telemetry">
                     <Col style={{height: 'inherit', width: 'inherit'}}>
                         <Row sm={3} style={{width: '100vw', marginLeft: '0'}}>
                             <Nav variant="tabs" className="flex-row">

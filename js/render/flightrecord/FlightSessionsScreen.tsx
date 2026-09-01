@@ -75,18 +75,28 @@ export class FlightSessionsScreen extends TTComponent<FlightSessionsScreenProps,
     }
 
     private makeRow(session: FlightSessionInfo) {
-        return <tr key={session.filename}>
+        // The whole row opens the session; the buttons sit inside it, so they have to stop the
+        // click from reaching the row as well - otherwise Export or Delete would open it too.
+        const stop = (handler: () => void) => (ev: React.MouseEvent) => {
+            ev.stopPropagation();
+            handler();
+        };
+        return <tr
+            key={session.filename}
+            onClick={() => this.viewSession(session)}
+            style={{cursor: 'pointer'}}
+        >
             <td>{formatDate(session.startIso)}</td>
             <td>{session.coilName || ('Coil ' + session.coil)}</td>
             <td>{formatDuration(session.durationMs)}</td>
             <td>
-                <Button size={'sm'} variant={'primary'} onClick={() => this.viewSession(session)}>
+                <Button size={'sm'} variant={'primary'} onClick={stop(() => this.viewSession(session))}>
                     View
                 </Button>{' '}
-                <Button size={'sm'} variant={'secondary'} onClick={() => this.exportSession(session)}>
+                <Button size={'sm'} variant={'secondary'} onClick={stop(() => this.exportSession(session))}>
                     Export
                 </Button>{' '}
-                <Button size={'sm'} variant={'danger'} onClick={() => this.setState({pendingDelete: session})}>
+                <Button size={'sm'} variant={'danger'} onClick={stop(() => this.setState({pendingDelete: session}))}>
                     Delete
                 </Button>
             </td>

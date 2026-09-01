@@ -258,6 +258,76 @@ function drawCameraPanel(
     ctx.restore();
 }
 
+// JustGage's default level colours, so an exported dial reads the same way the live one does.
+function gaugeColor(fraction: number): string {
+    if (fraction < 0.5) {
+        return '#a9d70b';
+    }
+    return fraction < 0.8 ? '#f9c802' : '#ff0000';
+}
+
+// Gauge readings span everything from a duty cycle in percent to an ontime in the tens of
+// thousands, so a fixed number of decimals would either lose resolution or overflow the dial.
+function formatGaugeValue(value: number): string {
+    const magnitude = Math.abs(value);
+    if (magnitude >= 1000) {
+        return value.toFixed(0);
+    }
+    return magnitude >= 100 ? value.toFixed(1) : value.toFixed(2);
+}
+
+// The live dials are JustGage instances rendering SVG into the DOM, which is of no use when the
+// frame has to end up on a canvas - so they are redrawn here with the same arc-and-label shape
+// rather than being reduced to the line of plain text this used to emit.
+function drawGauge(
+    ctx: CanvasRenderingContext2D, gauge: GaugeProps, x: number, y: number, w: number, h: number, scale: number,
+) {
+    const {config, value} = gauge;
+    const span = config.max - config.min;
+    const fraction = span > 0 ? Math.max(0, Math.min(1, (value - config.min) / span)) : 0;
+    const labelHeight = Math.round(12 * scale);
+    const cx = x + w / 2;
+    // Leaves room under the arc for the value and the channel name.
+    const radius = Math.max(6, Math.min(w * 0.38, (h - labelHeight * 2.2) * 0.62));
+    const cy = y + radius + Math.round(4 * scale);
+    // Three quarters of a circle, opening at the bottom.
+    const start = Math.PI * 0.75;
+    const sweep = Math.PI * 1.5;
+
+    ctx.save();
+    ctx.lineCap = 'butt';
+    ctx.lineWidth = Math.max(2, radius * 0.26);
+    ctx.strokeStyle = '#d0d0d0';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, start + sweep);
+    ctx.stroke();
+    if (fraction > 0) {
+        ctx.strokeStyle = gaugeColor(fraction);
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, start, start + sweep * fraction);
+        ctx.stroke();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#333';
+    ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
+    ctx.fillText(formatGaugeValue(value), cx, cy + Math.round(4 * scale));
+    ctx.fillStyle = '#666';
+    ctx.font = `${Math.round(10 * scale)}px sans-serif`;
+    ctx.fillText(config.name, cx, cy + radius + labelHeight);
+    ctx.restore();
+}
+
+function drawGauges(
+    ctx: CanvasRenderingContext2D, gauges: GaugeProps[], x: number, y: number, w: number, h: number, scale: number,
+) {
+    if (gauges.length === 0) {
+        return;
+    }
+    const cellWidth = w / gauges.length;
+    gauges.forEach((gauge, i) => drawGauge(ctx, gauge, x + i * cellWidth, y, cellWidth, h, scale));
+}
+
 async function drawFrame(
     ctx: CanvasRenderingContext2D, source: VideoExportSource, elapsed: number, layout: Layout,
     cameraVideo?: HTMLVideoElement,
@@ -307,11 +377,11 @@ async function drawFrame(
         legendY += Math.round(22 * layout.fontScale);
     }
 
-    let gaugeY = layout.topMargin + layout.scopeHeight + Math.round(22 * layout.fontScale);
-    ctx.font = `${Math.round(13 * layout.fontScale)}px sans-serif`;
-    ctx.fillStyle = '#888';
-    const gaugeLine = state.gauges.map((g) => `${g.config.name}: ${g.value.toFixed(2)}`).join('   ');
-    ctx.fillText(gaugeLine, 8, gaugeY);
+    const gaugeTop = layout.topMargin + layout.scopeHeight + Math.round(6 * layout.fontScale);
+    drawGauges(
+        ctx, state.gauges, 0, gaugeTop,
+        layout.scopeWidth + layout.legendWidth, layout.canvasHeight - gaugeTop, layout.fontScale,
+    );
 }
 
 // Encodes frames with WebCodecs as fast as the CPU allows (no waiting on wall-clock time like
