@@ -1,7 +1,11 @@
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import React from "react";
 import {Button, Form} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
+import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {MeterConfig} from "../../common/IPCConstantsToRenderer";
 import {FRDisplayData} from "../connect/ConnectScreen";
 import {Gauge, GaugeProps} from "../control/gauges/Gauge";
@@ -12,9 +16,10 @@ import {OscilloscopeTrace, TraceConfig, TraceStats} from "../control/scope/Trace
 import {Traces} from "../control/scope/Traces";
 import {VoltagePhaseSelect} from "../control/scope/VoltagePhaseSelect";
 import {SimpleSliderFixedTitle} from "../control/sliders/SimpleSlider";
+import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
 import {SessionVideo} from "./SessionVideo";
-import {downloadBlob, ExportResolution, exportTelemetryVideo, VideoExportState} from "./VideoExport";
+import {ExportResolution, exportTelemetryVideo, VideoExportState} from "./VideoExport";
 
 export interface TelemetryTabProps {
     events: FRDisplayData;
@@ -353,10 +358,24 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 {fps: this.state.exportFps, resolution: this.state.exportResolution},
                 (fraction) => this.setState({exportProgress: fraction}),
             );
-            downloadBlob(blob, `flight-recording-${Date.now()}.mp4`);
+            await this.saveExportedVideo(blob);
         } finally {
             this.setState({exporting: false});
         }
+    }
+
+    // The native save dialog is a main-process-only API, and the exported video only exists as an
+    // in-memory blob here (WebCodecs runs in the renderer) - so unlike opening/deleting a session,
+    // which just sends a filename that already exists on disk, this has to write the blob out to a
+    // temp file first and hand that off to the main process to move to wherever the user picks.
+    private async saveExportedVideo(blob: Blob) {
+        const tempPath = path.join(os.tmpdir(), `tt-video-export-${Date.now()}.mp4`);
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        await fs.promises.writeFile(tempPath, buffer);
+        processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.exportVideo, {
+            suggestedName: `flight-recording-${Date.now()}.mp4`,
+            tempPath,
+        });
     }
 
     private makeVideo(state: TelemetryState): React.ReactNode {

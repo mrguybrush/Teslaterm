@@ -37,6 +37,10 @@ export class FlightRecorderIPC {
             IPC_CONSTANTS_TO_MAIN.flightRecorder.exportSession,
             (filename) => this.exportSession(filename),
         );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.flightRecorder.exportVideo,
+            (data) => this.exportVideo(data),
+        );
         this.processIPC = processIPC;
     }
 
@@ -74,6 +78,20 @@ export class FlightRecorderIPC {
         });
         if (!result.canceled && result.filePath) {
             await fs.promises.copyFile(filename, result.filePath);
+        }
+    }
+
+    private async exportVideo({tempPath, suggestedName}: {tempPath: string, suggestedName: string}) {
+        try {
+            const result = await dialog.showSaveDialog(mainWindow, {
+                defaultPath: suggestedName,
+                filters: [{extensions: ['mp4'], name: 'Video'}],
+            });
+            if (!result.canceled && result.filePath) {
+                await fs.promises.copyFile(tempPath, result.filePath);
+            }
+        } finally {
+            await fs.promises.unlink(tempPath).catch(() => {});
         }
     }
 }

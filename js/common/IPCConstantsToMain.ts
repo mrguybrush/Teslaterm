@@ -49,6 +49,10 @@ export const IPC_CONSTANTS_TO_MAIN = {
         videoError: makeKey<string>('flight-session-video-error'),
         deleteSession: makeKey<string>('flight-session-delete'),
         exportSession: makeKey<string>('flight-session-export'),
+        // The exported video only exists as an in-memory blob in the renderer (WebCodecs), so
+        // unlike exportSession above it has to be written to a temp file first - this just tells
+        // the main process where that temp file is and what to suggest as the save dialog's name.
+        exportVideo: makeKey<{tempPath: string, suggestedName: string}>('flight-session-export-video'),
         openSession: makeKey<string>('flight-session-open'),
         requestSessionList: makeKey<undefined>('flight-session-list-request'),
     },
