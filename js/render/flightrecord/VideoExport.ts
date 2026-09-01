@@ -127,6 +127,24 @@ async function loadSessionAudio(
 ): Promise<AudioBuffer | undefined> {
     const audioCtx = new AudioContext();
     try {
+        // MediaRecorder never writes a final duration into the file, so Chromium reports it as
+        // Infinity until something makes it scan for the real one - and playback of a
+        // still-Infinity-duration file never reaches 'ended' below, which used to hang the export
+        // forever. Seeking near the end once is the standard fix: it forces the real duration to
+        // resolve immediately, and it has to happen before anything below starts relying on either.
+        if (!isFinite(video.duration)) {
+            await new Promise<void>((resolve) => {
+                const onDurationChange = () => {
+                    video.removeEventListener('durationchange', onDurationChange);
+                    resolve();
+                };
+                video.addEventListener('durationchange', onDurationChange);
+                video.currentTime = 1e101;
+                setTimeout(resolve, 2000);
+            });
+            video.currentTime = 0;
+        }
+
         const source = audioCtx.createMediaElementSource(video);
         const bufferSize = 4096;
         const processor = audioCtx.createScriptProcessor(bufferSize, AUDIO_CHANNEL_COUNT, AUDIO_CHANNEL_COUNT);
@@ -145,7 +163,6 @@ async function loadSessionAudio(
         processor.connect(silence);
         silence.connect(audioCtx.destination);
 
-        video.currentTime = 0;
         const ended = new Promise<void>((resolve) => {
             video.addEventListener('ended', () => resolve(), {once: true});
         });
@@ -155,8 +172,16 @@ async function loadSessionAudio(
             }
         };
         video.addEventListener('timeupdate', onTimeUpdate);
-        await video.play();
-        await ended;
+        try {
+            await video.play();
+        } catch (e) {
+            console.error('Playing session video for audio export', e);
+        }
+        // 'ended' is the normal way this resolves; the timeout is a safety net so a recording that
+        // still (for some other reason) never reaches 'ended' can no longer hang the whole export -
+        // it just exports with whatever audio was captured up to that point instead.
+        const timeoutMs = (isFinite(video.duration) ? video.duration * 1000 : 10 * 60 * 1000) + 15_000;
+        await Promise.race([ended, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
         video.removeEventListener('timeupdate', onTimeUpdate);
 
         processor.disconnect();
