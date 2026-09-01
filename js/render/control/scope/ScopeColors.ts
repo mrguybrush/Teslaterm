@@ -13,6 +13,9 @@ export const DEFAULT_TRACE_COLORS: string[] = [
     "#00d68f",
     "#0d7fc4",
     "#a64dd6",
+    // Trace 5 is the Ontime_eff curve derived from its dial (see DerivedTelemetry); without a
+    // colour of its own it would fall back to trace 0's red and be indistinguishable from Voltage.
+    "#00a8a8",
 ];
 
 export const DEFAULT_SCOPE_BACKGROUND = "#f0f0f0";
