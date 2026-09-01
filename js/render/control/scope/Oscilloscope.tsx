@@ -2,6 +2,7 @@ import React from "react";
 import {CloseButton, Nav, Tab} from "react-bootstrap";
 import {CoilID} from "../../../common/constants";
 import {MediaFileType, PlayerActivity} from "../../../common/MediaTypes";
+import {isShownAsTrace} from "../../../common/TelemetryVisibility";
 import {
     getToRenderIPCPerCoil,
     IPC_CONSTANTS_TO_RENDERER,
@@ -166,7 +167,11 @@ export class Oscilloscope extends TTComponent<OscilloscopeProps, OscilloscopeSta
     }
 
     private makeMainScope(): React.JSX.Element {
-        const realTraces = this.state.traces.filter(t => t !== undefined);
+        // Filtered here rather than per consumer: the chart, the legend and the statistics
+        // below all take this same list, so a hidden channel disappears from all of them.
+        const realTraces = this.state.traces.filter(
+            (t) => t !== undefined && isShownAsTrace(t.config.name),
+        );
         return <div className={'tt-scope'}>
             <div className={'tt-scope-top-row'}>
                 <MediaProgress {...this.state.media}/>

@@ -3,9 +3,9 @@ import React from "react";
 import {Button, Form} from "react-bootstrap";
 import {TelemetryEvent} from "../../common/constants";
 import {FRDisplayEventType} from "../../common/FlightRecorderTypes";
-import {isShownAsDial} from "../../common/GaugeVisibility";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER, MeterConfig} from "../../common/IPCConstantsToRenderer";
+import {isShownAsDial, isShownAsTrace} from "../../common/TelemetryVisibility";
 import {FRDisplayData} from "../connect/ConnectScreen";
 import {Gauge, GaugeProps} from "../control/gauges/Gauge";
 import {applyRangeOverride, voltagePerDivFor} from "../control/scope/RangeOverride";
@@ -217,9 +217,9 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
 
     public render() {
         const state = this.state.telemetryStates[this.state.lastIndexToShow];
-        const traces = this.state.chartStates[state.chartStateIndex].map(
-            (_, i) => this.makeTraceAt(state.chartStateIndex, i),
-        );
+        const traces = this.state.chartStates[state.chartStateIndex]
+            .map((_, i) => this.makeTraceAt(state.chartStateIndex, i))
+            .filter((t) => isShownAsTrace(t.config.name));
         return (
             <div className='tt-fr-telemetry'>
                 <div className='tt-fr-telemetry-control'>
@@ -335,9 +335,9 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
             // Rebuilding every trace's sample array is expensive - only do it when the
             // underlying telemetry state actually advanced, not on every video frame.
             if (cursor !== cachedCursor) {
-                cachedTraces = this.state.chartStates[telemetryState.chartStateIndex].map(
-                    (_, i) => this.makeTraceAt(telemetryState.chartStateIndex, i),
-                );
+                cachedTraces = this.state.chartStates[telemetryState.chartStateIndex]
+                    .map((_, i) => this.makeTraceAt(telemetryState.chartStateIndex, i))
+                    .filter((t) => isShownAsTrace(t.config.name));
                 cachedCursor = cursor;
             }
             return {

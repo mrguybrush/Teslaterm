@@ -1,7 +1,7 @@
 import React from "react";
 import {CoilID} from "../../../common/constants";
-import {isShownAsDial} from "../../../common/GaugeVisibility";
 import {getToRenderIPCPerCoil, MeterConfig, SetMeters} from "../../../common/IPCConstantsToRenderer";
+import {isShownAsDial} from "../../../common/TelemetryVisibility";
 import {TTComponent} from "../../TTComponent";
 import {Gauge, GaugeProps} from "./Gauge";
 

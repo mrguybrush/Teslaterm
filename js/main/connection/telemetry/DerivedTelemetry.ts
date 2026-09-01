@@ -10,7 +10,7 @@ import {TelemetryFrame} from "../../../common/TelemetryTypes";
  *
  * Nothing is dropped here: channels that should not get a dial of their own are still needed by the
  * GDT panel, which looks meters up by name, so they are filtered where dials are drawn instead -
- * see isShownAsDial in common/GaugeVisibility.
+ * see isShownAsDial in common/TelemetryVisibility.
  *
  * This lives in TelemetryChannel, the one point the live connection and the flight-recording parser
  * both pass through, so the live scope and recorded sessions (old ones included) behave the same.

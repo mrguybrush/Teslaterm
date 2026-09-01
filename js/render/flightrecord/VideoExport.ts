@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import {ArrayBufferTarget, Muxer} from "mp4-muxer";
 import {pathToFileURL} from "url";
-import {isShownAsDial} from "../../common/GaugeVisibility";
+import {isShownAsDial} from "../../common/TelemetryVisibility";
 import {GaugeProps} from "../control/gauges/Gauge";
 import {scopeColors} from "../control/scope/ScopeColors";
 import {OscilloscopeTrace} from "../control/scope/Trace";
