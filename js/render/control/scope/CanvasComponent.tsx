@@ -16,9 +16,48 @@ export abstract class CanvasComponent<Props, State> extends TTComponent<Props, S
     }
 
     public render(): React.ReactNode {
-        return <div ref={this.divRef}>
+        // Positioned so a subclass's overlay can be placed against the canvas; with no offsets of
+        // its own this does not affect layout.
+        return <div
+            ref={this.divRef}
+            style={{position: 'relative'}}
+            onMouseMove={(ev) => this.onCanvasMouseMove(ev)}
+            onMouseLeave={() => this.onCanvasMouseLeave()}
+        >
             <canvas ref={this.canvasRef} className={'tt-canvas'}/>
+            {this.renderOverlay()}
         </div>;
+    }
+
+    /** Canvas-relative pixel position of a mouse event, independent of any CSS scaling. */
+    protected canvasPosition(ev: React.MouseEvent): {x: number, y: number} | undefined {
+        const canvas = this.canvasRef.current;
+        if (!canvas) {
+            return undefined;
+        }
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+            return undefined;
+        }
+        return {
+            x: (ev.clientX - rect.left) * (canvas.width / rect.width),
+            y: (ev.clientY - rect.top) * (canvas.height / rect.height),
+        };
+    }
+
+    protected canvasSize(): {width: number, height: number} | undefined {
+        const canvas = this.canvasRef.current;
+        return canvas ? {height: canvas.height, width: canvas.width} : undefined;
+    }
+
+    // Hooks for subclasses that want to react to the pointer; no-ops by default so the other
+    // canvases behave exactly as before.
+    protected onCanvasMouseMove(ev: React.MouseEvent) {}
+
+    protected onCanvasMouseLeave() {}
+
+    protected renderOverlay(): React.ReactNode {
+        return undefined;
     }
 
     public componentDidMount() {

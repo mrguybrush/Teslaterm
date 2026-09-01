@@ -135,3 +135,21 @@
 .tt-gdt-trace       { fill: none; stroke: #5a96ff; stroke-width: 2; stroke-linejoin: miter; }
 .tt-gdt-cursor      { stroke: #ffb300; stroke-width: 1; stroke-dasharray: 3 3; }
 .tt-gdt-cursor-text { fill: #ffb300; font-family: monospace; font-size: 11px; }
+
+/* Value shown while the pointer is on one of the scope's lines. */
+.tt-scope-hover {
+    position: absolute;
+    /* Must not swallow the pointer, or moving onto the label would count as leaving the line and
+       the label would flicker in and out. */
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+    padding: 2px 6px;
+    border: 1px solid;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.94);
+    color: #222;
+    font-size: 12px;
+    font-weight: bold;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
