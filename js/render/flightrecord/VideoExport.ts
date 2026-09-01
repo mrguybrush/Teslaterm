@@ -73,7 +73,6 @@ const AAC_LC_CODEC = 'mp4a.40.2';
 const AUDIO_BITRATE = 192_000;
 // Matches the AAC-LC frame size, so every encoded AAC frame corresponds to exactly one AudioData.
 const AUDIO_SAMPLES_PER_FRAME = 1024;
-const AUDIO_CHANNEL_COUNT = 2;
 
 // H.264 level limits (Annex A), macroblocks are 16x16 - the original 960x540 canvas fit inside
 // level 3.1 (its own hard-coded codec string until now) with room to spare, but level 3.1 caps out
@@ -110,8 +109,8 @@ function pickH264Codec(width: number, height: number, fps: number): string {
 }
 
 // Loads a video file into an off-DOM element and waits until seeking it is possible. Never
-// attached to the document and never played by its caller - only ever used as a drawImage() source
-// (loadSessionAudio() below plays it once, separately, before the caller starts seeking it).
+// attached to the document and never played - only ever used as a drawImage() source, which is why
+// muting it here is safe (the audio track is decoded straight from the file, see loadSessionAudio).
 function loadCameraVideo(path: string): Promise<HTMLVideoElement> {
     return new Promise((resolve, reject) => {
         const video = document.createElement('video');
@@ -148,97 +147,24 @@ function seekCameraVideo(video: HTMLVideoElement, seconds: number): Promise<void
     });
 }
 
-// decodeAudioData() turned out to be unreliable for these recordings: MediaRecorder never goes
-// back and rewrites the file with a proper duration/seek index once it stops, and Chromium's
-// offline audio decoder is far stricter about that than <video> playback is - it can throw or
-// silently return nothing for exactly the WebM files this app records, even though the very same
-// file plays back fine as a <video> (proven by the camera panel, which reads this same file).
-// This decodes it the same way playback does instead: play the muted, off-DOM camera video in real
-// time and capture what a MediaElementAudioSourceNode actually produces, rather than parsing the
-// container directly. That does mean this takes as long as the recording itself.
-async function loadSessionAudio(
-    video: HTMLVideoElement, onProgress: (fraction: number) => void,
-): Promise<AudioBuffer | undefined> {
+// Decodes the session video's full audio track to PCM. decodeAudioData demuxes and decodes in one
+// step regardless of the source container (the recording is WebM/Opus today), so this needs no
+// separate demuxer - only a real AudioContext, since OfflineAudioContext refuses files longer than
+// the render length it was constructed for.
+//
+// An earlier attempt captured this by playing the camera video through a MediaElementAudioSourceNode
+// instead. That is what produced an entirely silent audio track: loadCameraVideo mutes the element
+// (it is only ever a drawImage source), and a muted element feeds silence into the graph. Decoding
+// the file directly sidesteps that entirely, and does not cost the length of the recording in
+// real-time playback either.
+async function loadSessionAudio(path: string): Promise<AudioBuffer | undefined> {
     const audioCtx = new AudioContext();
     try {
-        // MediaRecorder never writes a final duration into the file, so Chromium reports it as
-        // Infinity until something makes it scan for the real one - and playback of a
-        // still-Infinity-duration file never reaches 'ended' below, which used to hang the export
-        // forever. Seeking near the end once is the standard fix: it forces the real duration to
-        // resolve immediately, and it has to happen before anything below starts relying on either.
-        if (!isFinite(video.duration)) {
-            await new Promise<void>((resolve) => {
-                const onDurationChange = () => {
-                    video.removeEventListener('durationchange', onDurationChange);
-                    resolve();
-                };
-                video.addEventListener('durationchange', onDurationChange);
-                video.currentTime = 1e101;
-                setTimeout(resolve, 2000);
-            });
-            video.currentTime = 0;
-        }
-
-        const source = audioCtx.createMediaElementSource(video);
-        const bufferSize = 4096;
-        const processor = audioCtx.createScriptProcessor(bufferSize, AUDIO_CHANNEL_COUNT, AUDIO_CHANNEL_COUNT);
-        const chunks: Float32Array[][] = Array.from({length: AUDIO_CHANNEL_COUNT}, () => []);
-        processor.onaudioprocess = (ev) => {
-            for (let ch = 0; ch < AUDIO_CHANNEL_COUNT; ch++) {
-                chunks[ch].push(new Float32Array(ev.inputBuffer.getChannelData(ch)));
-            }
-        };
-        // The processor only receives audioprocess callbacks while it is part of a live graph that
-        // reaches the destination - routing it through a zero-gain node keeps the captured audio
-        // from actually being audible during export.
-        const silence = audioCtx.createGain();
-        silence.gain.value = 0;
-        source.connect(processor);
-        processor.connect(silence);
-        silence.connect(audioCtx.destination);
-
-        const ended = new Promise<void>((resolve) => {
-            video.addEventListener('ended', () => resolve(), {once: true});
-        });
-        const onTimeUpdate = () => {
-            if (isFinite(video.duration) && video.duration > 0) {
-                onProgress(Math.min(1, video.currentTime / video.duration));
-            }
-        };
-        video.addEventListener('timeupdate', onTimeUpdate);
-        try {
-            await video.play();
-        } catch (e) {
-            console.error('Playing session video for audio export', e);
-        }
-        // 'ended' is the normal way this resolves; the timeout is a safety net so a recording that
-        // still (for some other reason) never reaches 'ended' can no longer hang the whole export -
-        // it just exports with whatever audio was captured up to that point instead.
-        const timeoutMs = (isFinite(video.duration) ? video.duration * 1000 : 10 * 60 * 1000) + 15_000;
-        await Promise.race([ended, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
-        video.removeEventListener('timeupdate', onTimeUpdate);
-
-        processor.disconnect();
-        source.disconnect();
-        video.pause();
-        onProgress(1);
-
-        const totalFrames = chunks[0].reduce((sum, c) => sum + c.length, 0);
-        if (totalFrames === 0) {
-            return undefined;
-        }
-        const buffer = audioCtx.createBuffer(AUDIO_CHANNEL_COUNT, totalFrames, audioCtx.sampleRate);
-        for (let ch = 0; ch < AUDIO_CHANNEL_COUNT; ch++) {
-            const out = buffer.getChannelData(ch);
-            let offset = 0;
-            for (const chunk of chunks[ch]) {
-                out.set(chunk, offset);
-                offset += chunk.length;
-            }
-        }
-        return buffer;
+        const bytes = await fs.promises.readFile(path);
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        return await audioCtx.decodeAudioData(arrayBuffer);
     } catch (e) {
-        console.error('Extracting session audio for export', e);
+        console.error('Decoding session audio for export', e);
         return undefined;
     } finally {
         await audioCtx.close();
@@ -391,8 +317,6 @@ async function drawFrame(
 // Encodes frames with WebCodecs as fast as the CPU allows (no waiting on wall-clock time like
 // MediaRecorder/captureStream would) while still tagging each frame with the correct timestamp,
 // so the resulting video plays back at the right speed even though producing it was much faster.
-// The session audio (when included) is the one part that can't be sped up the same way - see
-// loadSessionAudio() - so it gets its own share of the progress range further down.
 // Returns the finished MP4 as the muxer's own buffer rather than wrapping it in a Blob: a finished
 // export can run to hundreds of megabytes, and every additional full copy of it in the renderer's
 // heap is a real risk of the whole export dying right at the finish line.
@@ -423,13 +347,10 @@ export async function exportTelemetryVideo(
     // Loaded once up front rather than per frame - repeatedly creating/loading a <video> element
     // would dwarf the cost of the seeks themselves.
     const cameraVideo = source.video ? await loadCameraVideo(source.video.path) : undefined;
-    // Extracting the audio track plays the whole recording back in real time (see loadSessionAudio),
-    // so it gets a share of the progress bar proportional to roughly how long that actually takes
-    // relative to the (much faster) frame encoding loop below.
-    const audioProgressShare = includeCamera ? 0.3 : 0;
-    const sessionAudio = cameraVideo
-        ? await loadSessionAudio(cameraVideo, (f) => onProgress(f * audioProgressShare))
-        : undefined;
+    // Decoded separately from the <video> element above: reading frames back out of an
+    // HTMLVideoElement's audio track isn't something the DOM exposes, so the same file is decoded
+    // a second time, this time as audio.
+    const sessionAudio = source.video ? await loadSessionAudio(source.video.path) : undefined;
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
@@ -485,7 +406,7 @@ export async function exportTelemetryVideo(
         });
         videoEncoder.encode(frame, {keyFrame: i % keyframeIntervalFrames === 0});
         frame.close();
-        onProgress(audioProgressShare + (1 - audioProgressShare) * (i + 1) / totalFrames);
+        onProgress((i + 1) / totalFrames);
 
         // Yield periodically so the progress display stays responsive; the encoder queue is
         // otherwise free to run flat out.
