@@ -44,6 +44,7 @@ export interface TelemetryTabState {
     chartStates: ChartState[][];
     exporting: boolean;
     exportProgress: number;
+    exportError?: string;
     playing: boolean;
     includeVideoInExport: boolean;
     exportFps: number;
@@ -243,14 +244,15 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                         {this.state.playing ? 'Pause' : 'Play'}
                     </Button>
                     <Button
-                        variant={'secondary'}
+                        variant={this.state.exportError ? 'danger' : 'secondary'}
                         size={'sm'}
                         disabled={this.state.exporting}
+                        title={this.state.exportError ? `Export failed: ${this.state.exportError}` : undefined}
                         onClick={() => this.exportVideo()}
                     >
                         {this.state.exporting
                             ? `Exporting… ${Math.round(this.state.exportProgress * 100)}%`
-                            : 'Export as video'}
+                            : this.state.exportError ? 'Export failed - retry?' : 'Export as video'}
                     </Button>
                     <Form.Select
                         size={'sm'}
@@ -347,7 +349,7 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
         const {videoPath, videoStartEpochMs} = this.props.events;
         const includeVideo = this.state.includeVideoInExport && videoPath !== undefined
             && videoStartEpochMs !== undefined;
-        this.setState({exportProgress: 0, exporting: true});
+        this.setState({exportError: undefined, exportProgress: 0, exporting: true});
         try {
             const blob = await exportTelemetryVideo(
                 {
@@ -359,6 +361,12 @@ export class TelemetryTab extends TTComponent<TelemetryTabProps, TelemetryTabSta
                 (fraction) => this.setState({exportProgress: fraction}),
             );
             await this.saveExportedVideo(blob);
+        } catch (e) {
+            // Without this, a failure here (e.g. the encoder rejecting an unsupported
+            // resolution/frame rate combination) used to just silently reset the button - exporting
+            // again would look identical and fail identically, with no way to tell what went wrong.
+            console.error('Exporting flight recording video', e);
+            this.setState({exportError: e?.message || String(e)});
         } finally {
             this.setState({exporting: false});
         }

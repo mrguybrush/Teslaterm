@@ -75,6 +75,40 @@ const AUDIO_BITRATE = 192_000;
 const AUDIO_SAMPLES_PER_FRAME = 1024;
 const AUDIO_CHANNEL_COUNT = 2;
 
+// H.264 level limits (Annex A), macroblocks are 16x16 - the original 960x540 canvas fit inside
+// level 3.1 (its own hard-coded codec string until now) with room to spare, but level 3.1 caps out
+// at 3600 macroblocks/frame - 1280x720 alone is already right at that ceiling, and every resolution
+// or frame rate above the old defaults (both now user-selectable) needs a higher level or
+// VideoEncoder.configure() rejects it outright and the export aborts before it can produce anything.
+const H264_LEVELS: Array<{levelIdc: number; maxFrameMacroblocks: number; maxMacroblocksPerSecond: number}> = [
+    {levelIdc: 0x0a, maxFrameMacroblocks: 99, maxMacroblocksPerSecond: 1_485},
+    {levelIdc: 0x0b, maxFrameMacroblocks: 396, maxMacroblocksPerSecond: 3_000},
+    {levelIdc: 0x0c, maxFrameMacroblocks: 396, maxMacroblocksPerSecond: 6_000},
+    {levelIdc: 0x0d, maxFrameMacroblocks: 396, maxMacroblocksPerSecond: 11_880},
+    {levelIdc: 0x14, maxFrameMacroblocks: 396, maxMacroblocksPerSecond: 11_880},
+    {levelIdc: 0x15, maxFrameMacroblocks: 792, maxMacroblocksPerSecond: 19_800},
+    {levelIdc: 0x16, maxFrameMacroblocks: 1_620, maxMacroblocksPerSecond: 20_250},
+    {levelIdc: 0x1e, maxFrameMacroblocks: 1_620, maxMacroblocksPerSecond: 40_500},
+    {levelIdc: 0x1f, maxFrameMacroblocks: 3_600, maxMacroblocksPerSecond: 108_000},
+    {levelIdc: 0x20, maxFrameMacroblocks: 5_120, maxMacroblocksPerSecond: 216_000},
+    {levelIdc: 0x28, maxFrameMacroblocks: 8_192, maxMacroblocksPerSecond: 245_760},
+    {levelIdc: 0x29, maxFrameMacroblocks: 8_192, maxMacroblocksPerSecond: 245_760},
+    {levelIdc: 0x2a, maxFrameMacroblocks: 8_704, maxMacroblocksPerSecond: 522_240},
+    {levelIdc: 0x32, maxFrameMacroblocks: 22_080, maxMacroblocksPerSecond: 589_824},
+    {levelIdc: 0x33, maxFrameMacroblocks: 36_864, maxMacroblocksPerSecond: 983_040},
+    {levelIdc: 0x34, maxFrameMacroblocks: 36_864, maxMacroblocksPerSecond: 2_073_600},
+];
+
+// Baseline profile (0x42), no constraint flags - only the level (the last byte) varies.
+function pickH264Codec(width: number, height: number, fps: number): string {
+    const frameMacroblocks = Math.ceil(width / 16) * Math.ceil(height / 16);
+    const macroblocksPerSecond = frameMacroblocks * fps;
+    const level = H264_LEVELS.find(
+        (l) => frameMacroblocks <= l.maxFrameMacroblocks && macroblocksPerSecond <= l.maxMacroblocksPerSecond,
+    ) ?? H264_LEVELS[H264_LEVELS.length - 1];
+    return `avc1.4200${level.levelIdc.toString(16).padStart(2, '0')}`;
+}
+
 // Loads a video file into an off-DOM element and waits until seeking it is possible. Never
 // attached to the document and never played by its caller - only ever used as a drawImage() source
 // (loadSessionAudio() below plays it once, separately, before the caller starts seeking it).
@@ -421,9 +455,10 @@ export async function exportTelemetryVideo(
         output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     });
     videoEncoder.configure({
-        // H.264 Baseline profile, level 3.1 - widely supported, cheap to encode in software.
+        // H.264 Baseline profile - widely supported, cheap to encode in software. The level has to
+        // match the actual frame size/rate (see pickH264Codec) or configure() rejects it outright.
         bitrate: videoBitrate,
-        codec: 'avc1.42001f',
+        codec: pickH264Codec(canvasWidth, canvasHeight, fps),
         framerate: fps,
         height: canvasHeight,
         width: canvasWidth,
