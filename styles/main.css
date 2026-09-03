@@ -535,6 +535,14 @@
     flex-shrink: 0;
 }
 
+.tt-equalizer-body {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .tt-eq-curve-container {
     flex: 1 1 auto;
     min-height: 140px;
@@ -546,4 +554,39 @@
     height: 100%;
     border-radius: 4px;
     cursor: crosshair;
+}
+
+/* Q slider for the selected point - a sidebar next to the curve rather than only the mouse wheel,
+   for anyone whose mouse/trackpad doesn't have one. */
+.tt-eq-q-sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 56px;
+    flex: 0 0 auto;
+    padding: 6px 0;
+}
+
+.tt-eq-q-label {
+    font-weight: bold;
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+.tt-eq-q-value {
+    font-size: 0.78em;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+.tt-eq-q-slider {
+    /* -webkit-appearance: slider-vertical is a long-standing Chromium/WebKit extension (Electron is
+       always Chromium, so no cross-browser fallback is needed) - it renders a native vertical
+       track/thumb with no rotation hack needed, max at the top and min at the bottom. */
+    -webkit-appearance: slider-vertical;
+    width: 24px;
+    flex: 1 1 auto;
+    min-height: 60px;
+    margin: 4px 0;
 }

@@ -44,6 +44,18 @@ export function defaultEqState(): MidiEqState {
     return {enabled: false, points: []};
 }
 
+// Q is dragged/scrolled multiplicatively (each wheel notch scales it, rather than adding a fixed
+// amount), so a linear slider for it would feel very uneven - most of the 0.2-10 range would be
+// crammed into a sliver near the low end. These map to/from a 0-1 position on a log scale instead,
+// for a slider (or any other linear control) that feels evenly spaced across the whole range.
+export function qToNormalized(q: number): number {
+    return (Math.log(q) - Math.log(MIN_Q)) / (Math.log(MAX_Q) - Math.log(MIN_Q));
+}
+
+export function normalizedToQ(t: number): number {
+    return Math.exp(Math.log(MIN_Q) + Math.max(0, Math.min(1, t)) * (Math.log(MAX_Q) - Math.log(MIN_Q)));
+}
+
 export function noteToFrequencyHz(note: number): number {
     return 440 * Math.pow(2, (note - 69) / 12);
 }
