@@ -1,6 +1,6 @@
 {
   "name": "teslaterm",
-  "version": "1.8.59",
+  "version": "1.8.60",
   "scripts": {
     "tsc": "tsc --build --incremental",
     "build-dev": "npm run tsc && webpack --mode=development",
@@ -49,9 +49,11 @@
   "build": {
     "appId": "teslaterm",
     "electronDist": "node_modules/electron/dist",
+    "icon": "build/icon.png",
     "win": {
       "artifactName": "electron/${productName}-windows.${ext}",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true
     },
     "linux": {
       "artifactName": "electron/${productName}-linux.${ext}"

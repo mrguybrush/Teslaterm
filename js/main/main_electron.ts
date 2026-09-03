@@ -17,6 +17,13 @@ function createWindow() {
         height: windowHeight,
         width: windowWidth,
         title: windowTitle,
+        // The packaged .exe/.ico carries this too (see package.json's build.win.icon), but that
+        // only takes effect for a built app - an unpackaged `npm start` run has no exe resource to
+        // pull an icon from, and would otherwise show Electron's own default one. A copy at the
+        // project root rather than under build/ specifically: that directory is electron-builder's
+        // own buildResources folder, read directly off disk at build time and not bundled into the
+        // packaged app - confirmed by listing app.asar's contents, which does not include it.
+        icon: path.join(__dirname, "../../app-icon.png"),
         webPreferences: {
             // TODO the goal is for both of these to be removed at some point
             nodeIntegration: true,
