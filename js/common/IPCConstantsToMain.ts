@@ -1,3 +1,4 @@
+import {EqPoint} from "./MidiEqualizer";
 import {MidiPlaylistEntry, MidiSimplifyAlgorithm} from "./MidiPlaylistTypes";
 import {MixerLayer, VolumeKey, VolumeUpdate} from "./MixerTypes";
 import {MultiConnectionOptions, SingleConnectionOptions} from './SingleConnectionOptions';
@@ -128,8 +129,8 @@ export function getToMainIPCPerCoil(coil: CoilID) {
         dumpFlightRecorder: makeCoilKey<CoilID>('dump-flight-recorder'),
         equalizer: {
             requestState: makeCoilKey<undefined>('eq-request-state'),
-            setBandGain: makeCoilKey<{band: number, gainPercent: number}>('eq-set-band-gain'),
             setEnabled: makeCoilKey<boolean>('eq-set-enabled'),
+            setPoints: makeCoilKey<EqPoint[]>('eq-set-points'),
         },
         flightRecorder: {
             requestState: makeCoilKey<undefined>('fr-request-state'),

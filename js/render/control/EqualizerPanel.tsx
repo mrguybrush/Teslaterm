@@ -3,16 +3,23 @@ import {Form} from "react-bootstrap";
 import {CoilID} from "../../common/constants";
 import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {getToRenderIPCPerCoil} from "../../common/IPCConstantsToRenderer";
-import {bandLabel, defaultEqState, MidiEqState} from "../../common/MidiEqualizer";
+import {defaultEqState, EqPoint, MidiEqState} from "../../common/MidiEqualizer";
 import {processIPC} from "../ipc/IPCProvider";
 import {TTComponent} from "../TTComponent";
-import {SimpleSlider} from "./sliders/SimpleSlider";
+import {EqualizerCurve} from "./EqualizerCurve";
 
 export interface EqualizerPanelProps {
     coil: CoilID;
 }
 
+// While dragging a point or turning its Q knob, onChange(..., false) can fire on every animation
+// frame - sent to the main process at full rate that would be a lot of IPC traffic for no audible
+// benefit. commit=true (mouse-up, a discrete add/remove/wheel-notch) always sends immediately.
+const DRAG_SEND_INTERVAL_MS = 50;
+
 export class EqualizerPanel extends TTComponent<EqualizerPanelProps, MidiEqState> {
+    private lastSentAt = 0;
+
     public constructor(props: EqualizerPanelProps) {
         super(props);
         // Replaced almost immediately by the real state requested below - the main process is the
@@ -30,34 +37,30 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, MidiEqState
 
     public render(): React.ReactNode {
         return <div className={'tt-equalizer-panel'}>
+            <div className={'tt-equalizer-header'}>
+                <Form.Check
+                    type={'checkbox'}
+                    id={'equalizer-enabled'}
+                    label={'Enabled'}
+                    checked={this.state.enabled}
+                    onChange={(ev) => this.setEnabled(ev.target.checked)}
+                />
+                <span className={'tt-equalizer-hint'}>
+                    Double-click to add a point, drag to move it, scroll to change its Q,
+                    right-click or Delete to remove it.
+                </span>
+            </div>
+            <EqualizerCurve
+                points={this.state.points}
+                enabled={this.state.enabled}
+                onChange={(points, commit) => this.onCurveChange(points, commit)}
+            />
             <p className={'tt-equalizer-explanation'}>
                 Scales how loud notes in each range play on the coil, by scaling their MIDI
                 velocity - a Tesla coil has no audio signal to filter, so this is the closest
-                equivalent of an EQ band. Only Note On velocity is touched: TR, the bus and every
+                equivalent of an EQ. Only Note On velocity is touched: TR, the bus and every
                 other coil control are unaffected.
             </p>
-            <Form.Check
-                type={'checkbox'}
-                id={'equalizer-enabled'}
-                label={'Enabled'}
-                checked={this.state.enabled}
-                onChange={(ev) => this.setEnabled(ev.target.checked)}
-            />
-            <div className={'tt-equalizer-bands'}>
-                {this.state.gainPercent.map((gain, band) => (
-                    <SimpleSlider
-                        key={band}
-                        title={bandLabel(band)}
-                        unit={'%'}
-                        min={0}
-                        max={200}
-                        value={gain}
-                        setValue={(value) => this.setBandGain(band, value)}
-                        visuallyEnabled={this.state.enabled}
-                        disabled={false}
-                    />
-                ))}
-            </div>
         </div>;
     }
 
@@ -66,12 +69,12 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, MidiEqState
         processIPC.send(getToMainIPCPerCoil(this.props.coil).equalizer.setEnabled, enabled);
     }
 
-    private setBandGain(band: number, gainPercent: number) {
-        this.setState((state) => {
-            const gains = [...state.gainPercent];
-            gains[band] = gainPercent;
-            return {gainPercent: gains};
-        });
-        processIPC.send(getToMainIPCPerCoil(this.props.coil).equalizer.setBandGain, {band, gainPercent});
+    private onCurveChange(points: EqPoint[], commit: boolean) {
+        this.setState({points});
+        const now = Date.now();
+        if (commit || now - this.lastSentAt > DRAG_SEND_INTERVAL_MS) {
+            this.lastSentAt = now;
+            processIPC.send(getToMainIPCPerCoil(this.props.coil).equalizer.setPoints, points);
+        }
     }
 }

@@ -1,6 +1,6 @@
 import {CoilID} from "../../common/constants";
 import {getToRenderIPCPerCoil} from "../../common/IPCConstantsToRenderer";
-import {defaultEqState, MidiEqState} from "../../common/MidiEqualizer";
+import {defaultEqState, EqPoint, MidiEqState} from "../../common/MidiEqualizer";
 import {processIPC} from "../ipc/IPCProvider";
 
 // Session-only, like the MIDI input port selection elsewhere in the app - it already resets on
@@ -26,11 +26,7 @@ export function setEqEnabled(coil: CoilID, enabled: boolean) {
     sendEqState(coil);
 }
 
-export function setEqBandGain(coil: CoilID, band: number, gainPercent: number) {
-    const state = getEqState(coil);
-    if (band < 0 || band >= state.gainPercent.length) {
-        return;
-    }
-    state.gainPercent[band] = Math.max(0, Math.min(200, gainPercent));
+export function setEqPoints(coil: CoilID, points: EqPoint[]) {
+    getEqState(coil).points = points;
     sendEqState(coil);
 }
