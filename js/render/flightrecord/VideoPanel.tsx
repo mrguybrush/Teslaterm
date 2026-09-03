@@ -1,5 +1,6 @@
 import React from "react";
 import {Button, Form} from "react-bootstrap";
+import {PencilSquare} from "react-bootstrap-icons";
 import {pathToFileURL} from "url";
 import {FlightSessionInfo} from "../../common/FlightRecorderTypes";
 import {CoilID} from "../../common/constants";
@@ -26,6 +27,15 @@ interface VideoPanelState {
     sessions: FlightSessionInfo[];
     playingVideoPath?: string;
     error?: string;
+    // What to name the *next* recording - typed before hitting Record, since there's no session to
+    // attach a name to yet at that point. Renaming an existing one (below) is a separate, later step.
+    nextSessionName: string;
+    renamingFilename?: string;
+    renameDraft: string;
+}
+
+function sessionDisplayName(session: FlightSessionInfo): string {
+    return session.name || formatDate(session.startIso);
 }
 
 function formatDate(iso: string): string {
@@ -45,6 +55,8 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
             // still on now - reflect the real state rather than assuming it starts off.
             previewOn: webcamManager.isActive(),
             recording: flightVideoRecorder.recording,
+            nextSessionName: '',
+            renameDraft: '',
             sessionActive: false,
             sessions: [],
         };
@@ -66,8 +78,12 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
             getToRenderIPCPerCoil(this.props.coil).flightRecorderActive,
             (sessionActive) => {
                 this.setState({sessionActive});
-                // A session that just ended has a new video to list.
-                if (!sessionActive) {
+                if (sessionActive) {
+                    // Cleared once the name has actually been consumed by starting a session, so it
+                    // doesn't linger and get reused (or need manually clearing) for the next one.
+                    this.setState({nextSessionName: ''});
+                } else {
+                    // A session that just ended has a new video to list.
                     processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.requestSessionList, undefined);
                 }
             },
@@ -96,12 +112,21 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
         return <div className={'tt-video-panel'}>
             <div className={'tt-video-panel-controls'}>
                 {this.makeRecordingIndicator()}
+                <Form.Control
+                    size={'sm'}
+                    className={'tt-video-session-name-input'}
+                    placeholder={'Session name (optional)'}
+                    disabled={this.state.sessionActive}
+                    value={this.state.nextSessionName}
+                    onChange={(ev) => this.setState({nextSessionName: ev.target.value})}
+                />
                 <Button
                     size={'sm'}
                     variant={'danger'}
                     disabled={this.state.sessionActive}
                     onClick={() => processIPC.send(
-                        getToMainIPCPerCoil(this.props.coil).flightRecorder.startRecording, undefined,
+                        getToMainIPCPerCoil(this.props.coil).flightRecorder.startRecording,
+                        this.state.nextSessionName,
                     )}
                 >
                     Record
@@ -189,7 +214,29 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
                 {withVideo.length === 0 && <p className={'tt-video-list-empty'}>No session videos yet.</p>}
                 {withVideo.map((session) => (
                     <div className={'tt-video-list-row'} key={session.filename}>
-                        <span className={'tt-video-list-name'}>{formatDate(session.startIso)}</span>
+                        {this.state.renamingFilename === session.filename
+                            ? <Form.Control
+                                size={'sm'}
+                                className={'tt-video-list-name-input'}
+                                autoFocus={true}
+                                value={this.state.renameDraft}
+                                onChange={(ev) => this.setState({renameDraft: ev.target.value})}
+                                onBlur={() => this.commitRename(session.filename)}
+                                onKeyDown={(ev) => {
+                                    if (ev.key === 'Enter') {
+                                        this.commitRename(session.filename);
+                                    } else if (ev.key === 'Escape') {
+                                        this.setState({renamingFilename: undefined});
+                                    }
+                                }}
+                            />
+                            : <span
+                                className={'tt-video-list-name'}
+                                title={'Click to rename'}
+                                onClick={() => this.startRename(session)}
+                            >
+                                {sessionDisplayName(session)} <PencilSquare className={'tt-video-list-rename-icon'}/>
+                            </span>}
                         <Button
                             size={'sm'}
                             variant={this.state.playingVideoPath === session.videoPath ? 'primary' : 'secondary'}
@@ -207,6 +254,23 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
                 autoPlay={true}
             />}
         </div>;
+    }
+
+    private startRename(session: FlightSessionInfo) {
+        this.setState({renameDraft: session.name || '', renamingFilename: session.filename});
+    }
+
+    private commitRename(filename: string) {
+        // A blur right after Enter's own commit (or after Escape) would otherwise fire a second,
+        // redundant rename - only actually commit while still in renaming mode for this row.
+        if (this.state.renamingFilename !== filename) {
+            return;
+        }
+        processIPC.send(
+            IPC_CONSTANTS_TO_MAIN.flightRecorder.renameSession,
+            {filename, name: this.state.renameDraft},
+        );
+        this.setState({renamingFilename: undefined});
     }
 
     private async refreshCameras() {

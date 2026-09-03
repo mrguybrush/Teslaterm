@@ -9,7 +9,11 @@ import {
     parseEventsFromFile,
     parseMINEvents,
 } from "../connection/flightrecorder/FlightRecordingParser";
-import {deleteSession as deleteSessionFromIndex, listSessions} from "../connection/flightrecorder/SessionIndex";
+import {
+    deleteSession as deleteSessionFromIndex,
+    listSessions,
+    renameSession as renameSessionInIndex,
+} from "../connection/flightrecorder/SessionIndex";
 import {mainWindow} from "../main_electron";
 import {MainIPC} from "./IPCProvider";
 
@@ -32,6 +36,10 @@ export class FlightRecorderIPC {
         processIPC.on(
             IPC_CONSTANTS_TO_MAIN.flightRecorder.deleteSession,
             (filename) => this.deleteSession(filename),
+        );
+        processIPC.on(
+            IPC_CONSTANTS_TO_MAIN.flightRecorder.renameSession,
+            ({filename, name}) => this.renameSession(filename, name),
         );
         processIPC.onAsync(
             IPC_CONSTANTS_TO_MAIN.flightRecorder.exportSession,
@@ -68,6 +76,11 @@ export class FlightRecorderIPC {
 
     private deleteSession(filename: string) {
         deleteSessionFromIndex(filename);
+        this.sendSessionList();
+    }
+
+    private renameSession(filename: string, name: string) {
+        renameSessionInIndex(filename, name);
         this.sendSessionList();
     }
 

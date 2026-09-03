@@ -58,6 +58,8 @@ interface MidiPlaylistPanelState {
     showSaveDialog: boolean;
     saveDialogName: string;
     simplifyTarget?: string;
+    transposeTarget?: string;
+    transposeSemitones: number;
 }
 
 type DragSource = 'library' | 'playlist';
@@ -126,6 +128,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             savedPlaylists: [],
             selectedSavedPlaylist: '',
             showSaveDialog: false,
+            transposeSemitones: 0,
         };
     }
 
@@ -270,6 +273,7 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
             </div>
             {this.makeSaveDialog()}
             {this.makeSimplifyDialog()}
+            {this.makeTransposeDialog()}
         </div>;
     }
 
@@ -510,6 +514,17 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
                             }}
                         >
                             ✨
+                        </Button>
+                        <Button
+                            size={'sm'}
+                            variant={'secondary'}
+                            title={'Transpose...'}
+                            onClick={(ev) => {
+                                ev.stopPropagation();
+                                this.setState({transposeSemitones: 0, transposeTarget: entry.filename});
+                            }}
+                        >
+                            ♪±
                         </Button>
                         <Button
                             size={'sm'}
@@ -769,6 +784,71 @@ export class MidiPlaylistPanel extends TTComponent<MidiPlaylistPanelProps, MidiP
         }
         processIPC.send(IPC_CONSTANTS_TO_MAIN.midiPlaylist.simplifyFile, {algorithm, filename});
         this.setState({simplifyTarget: undefined});
+    }
+
+    private makeTransposeDialog() {
+        const target = this.state.transposeTarget;
+        const semitones = this.state.transposeSemitones;
+        return <Modal show={!!target} onHide={() => this.setState({transposeTarget: undefined})}>
+            <Modal.Header closeButton>
+                <Modal.Title>Transpose</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+                <p>
+                    Shift every note in "{target ? stripExtension(target) : ''}" up or down by a
+                    fixed number of semitones, saved as a new archive entry - the original is
+                    untouched.
+                </p>
+                <div className={'tt-midi-transpose-input'}>
+                    <Button
+                        size={'sm'}
+                        variant={'secondary'}
+                        onClick={() => this.setState({transposeSemitones: semitones - 1})}
+                    >
+                        -
+                    </Button>
+                    <Form.Control
+                        type={'number'}
+                        size={'sm'}
+                        value={semitones}
+                        onChange={(ev) => {
+                            const value = parseInt(ev.target.value, 10);
+                            this.setState({transposeSemitones: Number.isFinite(value) ? value : 0});
+                        }}
+                    />
+                    <Button
+                        size={'sm'}
+                        variant={'secondary'}
+                        onClick={() => this.setState({transposeSemitones: semitones + 1})}
+                    >
+                        +
+                    </Button>
+                    <span className={'tt-midi-transpose-hint'}>
+                        semitones ({(semitones / 12).toFixed(1)} octaves)
+                    </span>
+                </div>
+            </Modal.Body>
+            <Modal.Footer>
+                <Button variant={'secondary'} onClick={() => this.setState({transposeTarget: undefined})}>
+                    Cancel
+                </Button>
+                <Button variant={'primary'} disabled={semitones === 0} onClick={() => this.runTranspose()}>
+                    Save as copy
+                </Button>
+            </Modal.Footer>
+        </Modal>;
+    }
+
+    private runTranspose() {
+        const filename = this.state.transposeTarget;
+        if (!filename || this.state.transposeSemitones === 0) {
+            return;
+        }
+        processIPC.send(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.transposeFile,
+            {filename, semitones: this.state.transposeSemitones},
+        );
+        this.setState({transposeTarget: undefined});
     }
 
     private openSaveDialog() {

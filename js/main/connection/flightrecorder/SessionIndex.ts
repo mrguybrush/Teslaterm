@@ -41,6 +41,24 @@ export function listSessions(): FlightSessionInfo[] {
         .sort((a, b) => b.startIso.localeCompare(a.startIso));
 }
 
+export function renameSession(filename: string, name: string): boolean {
+    const entries = readIndex();
+    const entry = entries.find((e) => e.filename === filename);
+    if (!entry) {
+        return false;
+    }
+    // An empty name means "go back to showing the start time" - stored as absent, not as "",
+    // matching how a never-named session already reads.
+    const trimmed = name.trim();
+    if (trimmed) {
+        entry.name = trimmed;
+    } else {
+        delete entry.name;
+    }
+    writeIndex(entries);
+    return true;
+}
+
 export function deleteSession(filename: string): boolean {
     const entries = readIndex();
     const idx = entries.findIndex((e) => e.filename === filename);

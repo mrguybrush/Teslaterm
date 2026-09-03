@@ -203,6 +203,36 @@
     padding: 2px 0;
 }
 
+.tt-video-list-name {
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tt-video-list-rename-icon,
+.tt-flight-sessions-rename-icon {
+    opacity: 0.5;
+    vertical-align: -0.1em;
+}
+
+.tt-video-list-name:hover .tt-video-list-rename-icon,
+.tt-flight-sessions-rename-icon-cell:hover .tt-flight-sessions-rename-icon {
+    opacity: 1;
+}
+
+.tt-video-list-name-input {
+    max-width: 220px;
+}
+
+.tt-video-session-name-input {
+    max-width: 220px;
+}
+
+.tt-flight-sessions-unnamed {
+    opacity: 0.6;
+}
+
 .tt-video-list-empty {
     margin: 0;
     opacity: 0.7;

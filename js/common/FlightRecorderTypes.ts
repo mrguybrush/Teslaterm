@@ -117,6 +117,9 @@ export interface FlightSessionInfo {
     coilName?: string;
     startIso: string;
     durationMs: number;
+    // User-assigned, set (or changed) any time after the session exists - absent for sessions
+    // nobody has named, which fall back to showing their start time instead.
+    name?: string;
     // Filled in when the session list is built, not stored in the index: the video is written by
     // the renderer after the index entry already exists, so the filesystem is the only truth.
     videoPath?: string;

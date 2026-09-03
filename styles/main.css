@@ -351,6 +351,22 @@
     font-weight: normal;
 }
 
+.tt-midi-transpose-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tt-midi-transpose-input .form-control {
+    width: 80px;
+    text-align: center;
+}
+
+.tt-midi-transpose-hint {
+    opacity: 0.75;
+    font-size: 0.85rem;
+}
+
 .tt-freq-panel {
     flex: 1 1 auto;
     min-height: 0;

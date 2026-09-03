@@ -58,6 +58,7 @@ interface PendingSession {
     coil: CoilID;
     startIso: string;
     durationMs: number;
+    name?: string;
 }
 
 export class FlightRecorder {
@@ -68,6 +69,7 @@ export class FlightRecorder {
     private sessionActive: boolean = false;
     private sessionStartWallClock: number = 0;
     private sessionFilename: string = '';
+    private sessionName?: string;
     // Last moment the coil actually did something. While TR is on the coil counts as busy
     // continuously, so only the gaps between activity are measured.
     private lastActivityWallClock: number = 0;
@@ -131,11 +133,12 @@ export class FlightRecorder {
     }
 
     /** Started explicitly from the Video tab; recording is never triggered automatically. */
-    public startSession() {
+    public startSession(name?: string) {
         if (this.sessionActive) {
             return;
         }
         this.sessionActive = true;
+        this.sessionName = name?.trim() || undefined;
         this.notifyActivity();
         this.sessionStartWallClock = Date.now();
         ensureSessionsDir();
@@ -167,7 +170,7 @@ export class FlightRecorder {
         const durationMs = Date.now() - this.sessionStartWallClock;
         ensureSessionsDir();
         const filename = this.sessionFilename;
-        this.pendingSessions.set(filename, {coil: this.coil, durationMs, startIso});
+        this.pendingSessions.set(filename, {coil: this.coil, durationMs, name: this.sessionName, startIso});
         this.worker.postMessage([this.oldBuffer, this.activeBuffer, filename]);
     }
 
@@ -186,6 +189,7 @@ export class FlightRecorder {
                         coilName: getOptionalUD3Connection(pending.coil)?.getUDName(),
                         durationMs: pending.durationMs,
                         filename: msg.filename,
+                        name: pending.name,
                         startIso: pending.startIso,
                     };
                     addSessionToIndex(info);

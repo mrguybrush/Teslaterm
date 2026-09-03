@@ -18,6 +18,7 @@ import {
 } from "../media/MidiLibrary";
 import {loadMediaFile, media_state, onSongEnded} from "../media/media_player";
 import {simplifyMidiFile} from "../media/MidiSimplify";
+import {transposeMidiFile} from "../media/MidiTranspose";
 import {
     getMidiPlayerState,
     getPlaybackSourcePlaylistIndex,
@@ -95,6 +96,10 @@ export class MidiPlaylistIPC {
         processIPC.onAsync(
             IPC_CONSTANTS_TO_MAIN.midiPlaylist.simplifyFile,
             ({filename, algorithm}) => this.simplifyFile(filename, algorithm),
+        );
+        processIPC.onAsync(
+            IPC_CONSTANTS_TO_MAIN.midiPlaylist.transposeFile,
+            ({filename, semitones}) => this.transposeFile(filename, semitones),
         );
         onSongEnded(() => this.processIPC.send(IPC_CONSTANTS_TO_RENDERER.midiPlaylist.songEnded, undefined));
     }
@@ -194,6 +199,15 @@ export class MidiPlaylistIPC {
         const bytes = await fs.promises.readFile(getMidiFilePath(filename));
         const simplified = simplifyMidiFile(new Uint8Array(bytes), algorithm);
         saveSimplifiedVariant(filename, algorithm, simplified);
+        this.sendLibrary();
+    }
+
+    private async transposeFile(filename: string, semitones: number) {
+        const bytes = await fs.promises.readFile(getMidiFilePath(filename));
+        const transposed = transposeMidiFile(new Uint8Array(bytes), semitones);
+        // Reused as-is: the suffix it builds a filename from is just a label, and this reads fine
+        // for either kind of variant ("..._simplified-melody-top.mid", "..._transpose+3.mid").
+        saveSimplifiedVariant(filename, `transpose${semitones >= 0 ? '+' : ''}${semitones}`, transposed);
         this.sendLibrary();
     }
 

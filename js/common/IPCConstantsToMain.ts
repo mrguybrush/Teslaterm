@@ -50,6 +50,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         videoError: makeKey<string>('flight-session-video-error'),
         deleteSession: makeKey<string>('flight-session-delete'),
         exportSession: makeKey<string>('flight-session-export'),
+        renameSession: makeKey<{filename: string, name: string}>('flight-session-rename'),
         // Native dialogs are main-process-only, but the exported video itself lives in the renderer
         // (WebCodecs encodes it there). So the renderer asks for a destination and writes the file
         // itself, rather than handing the whole export over to be written here - see
@@ -80,6 +81,7 @@ export const IPC_CONSTANTS_TO_MAIN = {
         setInPoint: makeKey<number>('midi-playlist-set-in-point'),
         setOutPoint: makeKey<number>('midi-playlist-set-out-point'),
         simplifyFile: makeKey<{ filename: string, algorithm: MidiSimplifyAlgorithm }>('midi-playlist-simplify'),
+        transposeFile: makeKey<{ filename: string, semitones: number }>('midi-playlist-transpose'),
         stopToStart: makeKey<undefined>('midi-playlist-stop-to-start'),
         setPlaylist: makeKey<MidiPlaylistEntry[]>('midi-playlist-set-playlist'),
     },
@@ -134,7 +136,8 @@ export function getToMainIPCPerCoil(coil: CoilID) {
         },
         flightRecorder: {
             requestState: makeCoilKey<undefined>('fr-request-state'),
-            startRecording: makeCoilKey<undefined>('fr-start-recording'),
+            // The name the user typed into the Flight Session tab before hitting Record, if any.
+            startRecording: makeCoilKey<string | undefined>('fr-start-recording'),
             stopRecording: makeCoilKey<undefined>('fr-stop-recording'),
         },
         manualCommand: makeCoilKey<string>('manual-command'),

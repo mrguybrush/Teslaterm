@@ -1,5 +1,6 @@
 import React from "react";
-import {Button, Modal, Table} from "react-bootstrap";
+import {Button, Form, Modal, Table} from "react-bootstrap";
+import {PencilSquare} from "react-bootstrap-icons";
 import {FlightSessionInfo} from "../../common/FlightRecorderTypes";
 import {IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {IPC_CONSTANTS_TO_RENDERER} from "../../common/IPCConstantsToRenderer";
@@ -15,6 +16,8 @@ export interface FlightSessionsScreenProps {
 interface FlightSessionsScreenState {
     sessions: FlightSessionInfo[];
     pendingDelete?: FlightSessionInfo;
+    renamingFilename?: string;
+    renameDraft: string;
 }
 
 function formatDuration(durationMs: number): string {
@@ -31,7 +34,7 @@ function formatDate(iso: string): string {
 export class FlightSessionsScreen extends TTComponent<FlightSessionsScreenProps, FlightSessionsScreenState> {
     constructor(props: FlightSessionsScreenProps) {
         super(props);
-        this.state = {sessions: []};
+        this.state = {renameDraft: '', sessions: []};
     }
 
     public componentDidMount() {
@@ -62,6 +65,7 @@ export class FlightSessionsScreen extends TTComponent<FlightSessionsScreenProps,
         return <Table bordered className={'tt-flight-sessions-table'}>
             <thead>
             <tr>
+                <th>Name</th>
                 <th>Start</th>
                 <th>Coil</th>
                 <th>Duration</th>
@@ -75,17 +79,43 @@ export class FlightSessionsScreen extends TTComponent<FlightSessionsScreenProps,
     }
 
     private makeRow(session: FlightSessionInfo) {
-        // The whole row opens the session; the buttons sit inside it, so they have to stop the
-        // click from reaching the row as well - otherwise Export or Delete would open it too.
+        // The whole row opens the session; the buttons (and the name cell, while renaming) sit
+        // inside it, so they have to stop the click from reaching the row too - otherwise Export,
+        // Delete or starting a rename would also open the session.
         const stop = (handler: () => void) => (ev: React.MouseEvent) => {
             ev.stopPropagation();
             handler();
         };
+        const renaming = this.state.renamingFilename === session.filename;
         return <tr
             key={session.filename}
             onClick={() => this.viewSession(session)}
             style={{cursor: 'pointer'}}
         >
+            <td
+                className={'tt-flight-sessions-rename-icon-cell'}
+                onClick={renaming ? stop(() => {}) : stop(() => this.startRename(session))}
+            >
+                {renaming
+                    ? <Form.Control
+                        size={'sm'}
+                        autoFocus={true}
+                        value={this.state.renameDraft}
+                        onChange={(ev) => this.setState({renameDraft: ev.target.value})}
+                        onBlur={() => this.commitRename(session.filename)}
+                        onKeyDown={(ev) => {
+                            if (ev.key === 'Enter') {
+                                this.commitRename(session.filename);
+                            } else if (ev.key === 'Escape') {
+                                this.setState({renamingFilename: undefined});
+                            }
+                        }}
+                    />
+                    : <span title={'Click to rename'}>
+                        {session.name || <em className={'tt-flight-sessions-unnamed'}>Unnamed</em>}{' '}
+                        <PencilSquare className={'tt-flight-sessions-rename-icon'}/>
+                    </span>}
+            </td>
             <td>{formatDate(session.startIso)}</td>
             <td>{session.coilName || ('Coil ' + session.coil)}</td>
             <td>{formatDuration(session.durationMs)}</td>
@@ -101,6 +131,23 @@ export class FlightSessionsScreen extends TTComponent<FlightSessionsScreenProps,
                 </Button>
             </td>
         </tr>;
+    }
+
+    private startRename(session: FlightSessionInfo) {
+        this.setState({renameDraft: session.name || '', renamingFilename: session.filename});
+    }
+
+    private commitRename(filename: string) {
+        // A blur right after Enter's own commit (or after Escape) would otherwise fire a second,
+        // redundant rename - only actually commit while still in renaming mode for this row.
+        if (this.state.renamingFilename !== filename) {
+            return;
+        }
+        processIPC.send(
+            IPC_CONSTANTS_TO_MAIN.flightRecorder.renameSession,
+            {filename, name: this.state.renameDraft},
+        );
+        this.setState({renamingFilename: undefined});
     }
 
     private viewSession(session: FlightSessionInfo) {

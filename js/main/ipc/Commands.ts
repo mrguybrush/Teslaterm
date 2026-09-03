@@ -29,7 +29,7 @@ export class CommandIPC {
         const commands = getCoilCommands(coil);
         const channels = getToMainIPCPerCoil(coil);
         processIPC.onAsync(channels.commands.saveEEPROM, () => commands.eepromSave());
-        processIPC.on(channels.flightRecorder.startRecording, () => getFlightRecorder(coil).startSession());
+        processIPC.on(channels.flightRecorder.startRecording, (name) => getFlightRecorder(coil).startSession(name));
         processIPC.on(channels.flightRecorder.stopRecording, () => getFlightRecorder(coil).stopSession());
         processIPC.on(channels.flightRecorder.requestState, () => getFlightRecorder(coil).sendState());
         processIPC.onAsync(
