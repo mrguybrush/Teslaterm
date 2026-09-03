@@ -1,6 +1,6 @@
 import React from "react";
 import {Button, Form, OverlayTrigger, Popover} from "react-bootstrap";
-import {InfoCircle} from "react-bootstrap-icons";
+import {ArrowCounterclockwise, InfoCircle} from "react-bootstrap-icons";
 import {CoilID} from "../../common/constants";
 import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {getToRenderIPCPerCoil} from "../../common/IPCConstantsToRenderer";
@@ -66,7 +66,7 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
         return <div className={'tt-equalizer-panel'}>
             <div className={'tt-equalizer-header'}>
                 <Form.Check
-                    type={'checkbox'}
+                    type={'switch'}
                     id={'equalizer-enabled'}
                     label={'Enabled'}
                     checked={this.state.enabled}
@@ -77,6 +77,16 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
                         <InfoCircle/>
                     </Button>
                 </OverlayTrigger>
+                <Button
+                    variant={'outline-secondary'}
+                    size={'sm'}
+                    className={'tt-equalizer-reset-button'}
+                    disabled={this.state.points.length === 0}
+                    onClick={() => this.resetCurve()}
+                    title={'Remove every point and start over'}
+                >
+                    <ArrowCounterclockwise/> Reset
+                </Button>
             </div>
             <div className={'tt-equalizer-body'}>
                 <EqualizerCurve
@@ -116,6 +126,13 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
     private setEnabled(enabled: boolean) {
         this.setState({enabled});
         processIPC.send(getToMainIPCPerCoil(this.props.coil).equalizer.setEnabled, enabled);
+    }
+
+    // Clears every point (back to a flat, unity curve) without touching the Enabled switch - a
+    // reset is about the shape of the curve, not whether it's currently applied.
+    private resetCurve() {
+        this.setState({points: [], selectedId: undefined});
+        this.sendPoints([], true);
     }
 
     private onCurveChange(points: EqPoint[], commit: boolean) {
