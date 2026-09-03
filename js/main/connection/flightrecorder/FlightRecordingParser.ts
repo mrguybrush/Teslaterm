@@ -1,6 +1,7 @@
 import fs from "fs";
 import JSZip from "jszip";
 import {InitialFRState, FRDisplayEventType, ParsedEvent, FlightEventType} from "../../../common/FlightRecorderTypes";
+import {MeterConfig} from "../../../common/IPCConstantsToRenderer";
 import {synthTypeToString} from "../../../common/MediaTypes";
 import {TelemetryFrame} from "../../../common/TelemetryTypes";
 import {ACK_BYTE, RESET} from "../../min/MINConstants";
@@ -130,9 +131,30 @@ function describeTelemetry(frame: TelemetryFrame, appID: number): string {
     return 'Telemetry on ' + appID + ': ' + JSON.stringify(frame);
 }
 
-export function parseEventsForDisplay(minEvents: MINFlightEvent[], skipTelemetry: boolean): ParsedEvent[] {
+export function parseEventsForDisplay(
+    minEvents: MINFlightEvent[], skipTelemetry: boolean, initialMeterConfig: MeterConfig[] = [],
+): ParsedEvent[] {
     const humanEvents: ParsedEvent[] = [];
     const telemetryParsers = [new TelemetryChannel(), new TelemetryChannel(), new TelemetryChannel()];
+    if (!skipTelemetry) {
+        // A meter already configured before the recording started (Ontime_eff typically among
+        // them - see DerivedTelemetry) would otherwise never get its derived trace at all: nothing
+        // in the recorded byte stream necessarily reconfigures it again. Which of the three
+        // channels actually carries it isn't tracked anywhere, so all three are primed the same
+        // way - harmless for the other two, since they simply never see a matching value update.
+        const seedTime = minEvents[0]?.time ?? 0;
+        for (const parser of telemetryParsers) {
+            for (const frame of parser.primeFromKnownMeters(initialMeterConfig)) {
+                humanEvents.push({
+                    desc: 'Carried over from before the recording started: ' + JSON.stringify(frame),
+                    frame,
+                    time: seedTime,
+                    toUD3: false,
+                    type: FRDisplayEventType.telemetry,
+                });
+            }
+        }
+    }
     for (const minEvent of minEvents) {
         // TODO handle seq mismatches and other MIN issues, partially already during conversion to MIN
         const frame = minEvent.frame;

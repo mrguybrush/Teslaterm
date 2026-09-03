@@ -59,7 +59,7 @@ export class FlightRecorderIPC {
     private async loadRecording(data: Buffer, sessionFilename?: string) {
         const [flightEvents, initialState] = await parseEventsFromFile(data);
         const minEvents = parseMINEvents(flightEvents);
-        const displayEvents = parseEventsForDisplay(minEvents, false);
+        const displayEvents = parseEventsForDisplay(minEvents, false, initialState.meterConfigs);
         const payload: FRFullListPayload = {events: displayEvents, initial: initialState};
         // Only sessions opened from the session list can have a video: a recording dropped in as a
         // bare zip has no known location to look next to.

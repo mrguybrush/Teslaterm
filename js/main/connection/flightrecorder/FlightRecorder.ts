@@ -31,8 +31,12 @@ const IDLE_TIMEOUT_MS = 60_000;
 function makeFlightRecordingBuffer(coil: CoilID): FlightRecordingBuffer {
     return {
         buffer: new SharedArrayBuffer(MAX_STORED_BYTES),
-        initialMeterConfig: ipcs.meters(coil).getCurrentConfigs(),
-        initialScopeConfig: ipcs.scope(coil).getCurrentConfigs(),
+        // Both undefined if the coil has since been disconnected/cleared (its per-coil IPC
+        // handlers are torn down then, but nothing tells a FlightRecorder still ticking for it) -
+        // an empty config snapshot beats crashing the whole main process over a session that's
+        // about to be idled out anyway.
+        initialMeterConfig: ipcs.meters(coil)?.getCurrentConfigs() ?? [],
+        initialScopeConfig: ipcs.scope(coil)?.getCurrentConfigs() ?? [],
         writeIndex: 0,
     };
 }
@@ -122,7 +126,10 @@ export class FlightRecorder {
             return;
         }
         if (Date.now() - this.lastActivityWallClock > IDLE_TIMEOUT_MS) {
-            ipcs.coilMisc(this.coil).openToast(
+            // undefined if the coil was disconnected/cleared while this session was still running -
+            // nothing left to show a toast to, but the recording still gets finalized below rather
+            // than left running (and ticked every 100ms) forever.
+            ipcs.coilMisc(this.coil)?.openToast(
                 'Flight Recorder',
                 'Recording stopped: the coil was idle for a minute.',
                 ToastSeverity.info,
@@ -196,7 +203,7 @@ export class FlightRecorder {
                 }
             }
         } else {
-            ipcs.coilMisc(this.coil).openToast(
+            ipcs.coilMisc(this.coil)?.openToast(
                 'Flight Recorder', msg.text, msg.level || ToastSeverity.info, 'flight-record',
             );
         }

@@ -78,11 +78,12 @@ export class VideoPanel extends TTComponent<VideoPanelProps, VideoPanelState> {
             getToRenderIPCPerCoil(this.props.coil).flightRecorderActive,
             (sessionActive) => {
                 this.setState({sessionActive});
-                if (sessionActive) {
-                    // Cleared once the name has actually been consumed by starting a session, so it
-                    // doesn't linger and get reused (or need manually clearing) for the next one.
+                if (!sessionActive) {
+                    // Cleared once the recording that used it has actually finished, ready for the
+                    // next one - clearing it the moment Record was pressed instead (as this used to)
+                    // made the name look like it had been lost the second the session started,
+                    // even though it was already saved by then.
                     this.setState({nextSessionName: ''});
-                } else {
                     // A session that just ended has a new video to list.
                     processIPC.send(IPC_CONSTANTS_TO_MAIN.flightRecorder.requestSessionList, undefined);
                 }
