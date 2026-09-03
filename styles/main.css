@@ -522,17 +522,10 @@
     flex-shrink: 0;
 }
 
-.tt-equalizer-hint {
-    opacity: 0.7;
-    font-size: 0.85em;
-}
-
-.tt-equalizer-explanation {
-    max-width: 700px;
-    opacity: 0.8;
-    margin-top: 8px;
-    margin-bottom: 0;
-    flex-shrink: 0;
+.tt-equalizer-info-button {
+    padding: 0 4px;
+    line-height: 1;
+    color: var(--bs-secondary-color);
 }
 
 .tt-equalizer-body {

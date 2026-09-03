@@ -1,5 +1,6 @@
 import React from "react";
-import {Form} from "react-bootstrap";
+import {Button, Form, OverlayTrigger, Popover} from "react-bootstrap";
+import {InfoCircle} from "react-bootstrap-icons";
 import {CoilID} from "../../common/constants";
 import {getToMainIPCPerCoil, IPC_CONSTANTS_TO_MAIN} from "../../common/IPCConstantsToMain";
 import {getToRenderIPCPerCoil} from "../../common/IPCConstantsToRenderer";
@@ -51,6 +52,17 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
 
     public render(): React.ReactNode {
         const selectedPoint = this.state.points.find((p) => p.id === this.state.selectedId);
+        const infoPopover = <Popover id={'equalizer-info-popover'}>
+            <Popover.Body>
+                Scales how loud notes in each range play on the coil, by scaling their MIDI
+                velocity - a Tesla coil has no audio signal to filter, so this is the closest
+                equivalent of an EQ. Only Note On velocity is touched: TR, the bus and every
+                other coil control are unaffected.
+                <hr/>
+                Double-click to add a point, drag to move it, scroll (or the Q slider) to
+                change its Q, right-click or Delete to remove it.
+            </Popover.Body>
+        </Popover>;
         return <div className={'tt-equalizer-panel'}>
             <div className={'tt-equalizer-header'}>
                 <Form.Check
@@ -60,10 +72,11 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
                     checked={this.state.enabled}
                     onChange={(ev) => this.setEnabled(ev.target.checked)}
                 />
-                <span className={'tt-equalizer-hint'}>
-                    Double-click to add a point, drag to move it, scroll (or the Q slider) to
-                    change its Q, right-click or Delete to remove it.
-                </span>
+                <OverlayTrigger trigger={'click'} placement={'right'} overlay={infoPopover} rootClose={true}>
+                    <Button variant={'link'} size={'sm'} className={'tt-equalizer-info-button'}>
+                        <InfoCircle/>
+                    </Button>
+                </OverlayTrigger>
             </div>
             <div className={'tt-equalizer-body'}>
                 <EqualizerCurve
@@ -97,12 +110,6 @@ export class EqualizerPanel extends TTComponent<EqualizerPanelProps, EqualizerPa
                     </span>
                 </div>
             </div>
-            <p className={'tt-equalizer-explanation'}>
-                Scales how loud notes in each range play on the coil, by scaling their MIDI
-                velocity - a Tesla coil has no audio signal to filter, so this is the closest
-                equivalent of an EQ. Only Note On velocity is touched: TR, the bus and every
-                other coil control are unaffected.
-            </p>
         </div>;
     }
 
