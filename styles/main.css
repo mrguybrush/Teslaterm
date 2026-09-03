@@ -484,3 +484,27 @@
 .tt-gdt-controls label { display: flex; gap: 6px; align-items: center; margin: 0; }
 .tt-gdt-controls .mono { font-family: monospace; font-variant-numeric: tabular-nums; }
 .tt-gdt-hint { padding: 14px; color: var(--bs-secondary-color); }
+
+/* --- Equalizer tab (per-coil MIDI velocity shaping by pitch band) --- */
+
+.tt-equalizer-panel {
+    padding: 8px 16px;
+    overflow-y: auto;
+    height: 100%;
+}
+
+.tt-equalizer-explanation {
+    max-width: 700px;
+    opacity: 0.8;
+}
+
+.tt-equalizer-bands {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 12px;
+}
+
+.tt-equalizer-bands .tt-slider-container {
+    width: 160px;
+}

@@ -5,6 +5,7 @@ import {ConnectionStatus, IUD3State} from "../../common/IPCConstantsToRenderer";
 import {TTConfig} from "../../common/TTConfig";
 import {SyncedUIConfig} from "../../common/UIConfig";
 import {TTComponent} from "../TTComponent";
+import {EqualizerPanel} from "./EqualizerPanel";
 import {GDTPanel} from "./GDTPanel";
 import {Gauges} from "./gauges/Gauges";
 import {MenuBar} from "./menu/Menu";
@@ -40,6 +41,7 @@ export interface SingleCoilTabProps {
 enum BottomPanelMode {
     terminal,
     midi_playlist,
+    equalizer,
     video,
     piano,
     frequency,
@@ -102,6 +104,13 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                                 MIDI Playlist
                             </Button>
                             <Button
+                                variant={bottomPanel === BottomPanelMode.equalizer ? 'primary' : 'secondary'}
+                                size={'sm'}
+                                onClick={() => this.setState({bottomPanel: BottomPanelMode.equalizer})}
+                            >
+                                Equalizer
+                            </Button>
+                            <Button
                                 variant={bottomPanel === BottomPanelMode.video ? 'primary' : 'secondary'}
                                 size={'sm'}
                                 onClick={() => this.setState({bottomPanel: BottomPanelMode.video})}
@@ -150,6 +159,8 @@ export class SingleCoilTab extends TTComponent<SingleCoilTabProps, SingleCoilTab
                         />}
                         {bottomPanel === BottomPanelMode.midi_playlist &&
                             <MidiPlaylistPanel disabled={!this.props.allowInteraction}/>}
+                        {bottomPanel === BottomPanelMode.equalizer &&
+                            <EqualizerPanel coil={this.props.coil}/>}
                         {bottomPanel === BottomPanelMode.video &&
                             <VideoPanel config={this.props.config} coil={this.props.coil}/>}
                         <PianoPanel

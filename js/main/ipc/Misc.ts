@@ -12,6 +12,7 @@ import {resendSimulatedMidiDevices} from "../connection/types/SimulatedConnectio
 import {config} from "../init";
 import {mainWindow} from "../main_electron";
 import {media_state} from "../media/media_player";
+import {sendEqState, setEqBandGain, setEqEnabled} from "../midi/CoilEqualizer";
 import {playMidiData, playMidiDataOn} from "../midi/midi";
 import {getUIConfig, setUIConfig} from "../UIConfigHandler";
 import {checkForUpdates, downloadAndInstallUpdate, listAvailableVersions, selectVersion} from "../UpdateChecker";
@@ -44,6 +45,18 @@ export class ByCoilMiscIPC {
         processIPC.onAsync(
             getToMainIPCPerCoil(coil).midiMessage,
             (msg) => playMidiDataOn(coil, msg),
+        );
+        processIPC.on(
+            getToMainIPCPerCoil(coil).equalizer.requestState,
+            () => sendEqState(coil),
+        );
+        processIPC.on(
+            getToMainIPCPerCoil(coil).equalizer.setEnabled,
+            (enabled) => setEqEnabled(coil, enabled),
+        );
+        processIPC.on(
+            getToMainIPCPerCoil(coil).equalizer.setBandGain,
+            ({band, gainPercent}) => setEqBandGain(coil, band, gainPercent),
         );
     }
 

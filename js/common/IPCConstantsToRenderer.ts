@@ -1,6 +1,7 @@
 import {CoilID, coilSuffix, UD3AlarmLevel} from "./constants";
 import {FlightSessionInfo, InitialFRState, ParsedEvent} from "./FlightRecorderTypes";
 import {MediaFileType, PlayerActivity} from './MediaTypes';
+import {MidiEqState} from "./MidiEqualizer";
 import {MidiLibraryEntry, MidiPlaylistEntry, MidiPlayerState, MidiPreviewFile} from "./MidiPlaylistTypes";
 import {AllFaders, MixerLayer} from "./MixerTypes";
 import {SingleConnectionOptions} from "./SingleConnectionOptions";
@@ -110,6 +111,9 @@ export function getToRenderIPCPerCoil(coil: CoilID) {
     const makeCoilKey = <Type>(channel: string) => makeKey<Type>(channel + suffix);
     return {
         alarmList: makeCoilKey<UD3Alarm[]>('alarms'),
+        equalizer: {
+            state: makeCoilKey<MidiEqState>('eq-state'),
+        },
         firmwarePicked: makeCoilKey<string | undefined>('firmware-picked'),
         // undefined: no upload running. A number in [0, 100]: known progress. -1: running, but no
         // fine-grained progress is available (the FTP-based upload path can't report partial

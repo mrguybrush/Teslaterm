@@ -126,6 +126,11 @@ export function getToMainIPCPerCoil(coil: CoilID) {
             setTRState: makeCoilKey<boolean>('set-tr-state'),
         },
         dumpFlightRecorder: makeCoilKey<CoilID>('dump-flight-recorder'),
+        equalizer: {
+            requestState: makeCoilKey<undefined>('eq-request-state'),
+            setBandGain: makeCoilKey<{band: number, gainPercent: number}>('eq-set-band-gain'),
+            setEnabled: makeCoilKey<boolean>('eq-set-enabled'),
+        },
         flightRecorder: {
             requestState: makeCoilKey<undefined>('fr-request-state'),
             startRecording: makeCoilKey<undefined>('fr-start-recording'),
