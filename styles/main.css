@@ -36,6 +36,14 @@
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
+    /* Every other link in this flex chain (.tt-coil-tab-main, .tt-terminal-and-gauges) already has
+       overflow: hidden, which per spec also resets a flex item's automatic minimum size to 0 - this
+       was the one link still using the default min-height: auto, sizing itself by its tallest
+       child's content instead of the space actually available. A bottom panel with enough content
+       (the Equalizer's canvas + explanation text) could then grow past the window and get clipped
+       by an ancestor further up, which is what made its bottom labels/explanation disappear. */
+    min-height: 0;
+    overflow: hidden;
 }
 
 .tt-terminal {
@@ -488,10 +496,22 @@
 /* --- Equalizer tab (per-coil MIDI velocity shaping by pitch, drawn as a curve) --- */
 
 .tt-equalizer-panel {
+    /* flex: 1 1 auto to actually claim the parent flex column's remaining height, like every
+       sibling bottom panel (.tt-midi-playlist-panel etc.) already does - height: 100% alone left
+       this sized by its own content instead, which could come out taller than the space actually
+       available. min-height: 0 is the standard fix for a flex column whose children need to be
+       able to shrink below their content size - without it a nested flex item does not shrink, it
+       overflows its box and silently vanishes into an ancestor's overflow: hidden instead
+       (.tt-coil-tab-main, .tt-top-level) - which is what made the frequency labels and the
+       explanation disappear whenever there wasn't quite enough vertical room. overflow-y: auto is
+       the last-resort fallback for whatever amount still doesn't fit.
+    */
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 8px 16px;
-    height: 100%;
+    overflow-y: auto;
 }
 
 .tt-equalizer-header {
@@ -499,6 +519,7 @@
     align-items: center;
     gap: 16px;
     margin-bottom: 8px;
+    flex-shrink: 0;
 }
 
 .tt-equalizer-hint {
@@ -511,11 +532,12 @@
     opacity: 0.8;
     margin-top: 8px;
     margin-bottom: 0;
+    flex-shrink: 0;
 }
 
 .tt-eq-curve-container {
     flex: 1 1 auto;
-    min-height: 180px;
+    min-height: 140px;
 }
 
 .tt-eq-curve-canvas {
