@@ -8,7 +8,7 @@ import {CommandButtons} from "../menu/CommandButtons";
 import {TabControlLevelBase} from "../SingleCoilTab";
 import {MidiSourceSelect} from "./MidiSourceSelect";
 import {OntimeSlider} from './OntimeSlider';
-import {SimpleSlider, SimpleSliderFixedTitle} from './SimpleSlider';
+import {SimpleSlider} from './SimpleSlider';
 
 export interface SlidersProps {
     disabled: boolean;
@@ -18,6 +18,7 @@ export interface SlidersProps {
 
 interface SliderUIState extends ISliderState {
     controllingRelativeOntime: boolean;
+    flightRecording: boolean;
 }
 
 export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
@@ -30,6 +31,7 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
             burstOfftime: 0,
             burstOntime: 0,
             controllingRelativeOntime: false,
+            flightRecording: false,
             maxBPS: 1000,
             maxOntime: 400,
             onlyMaxOntimeSettable: false,
@@ -58,6 +60,7 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                         ...sync,
                         burstOntime,
                         controllingRelativeOntime: this.state.controllingRelativeOntime,
+                        flightRecording: this.state.flightRecording,
                     };
                     if (sync.onlyMaxOntimeSettable) {
                         newState.controllingRelativeOntime = false;
@@ -65,6 +68,11 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                     this.setState(newState);
                 },
             );
+            this.addIPCListener(
+                getToRenderIPCPerCoil(coil).flightRecorderActive,
+                (flightRecording) => this.setState({flightRecording}),
+            );
+            processIPC.send(getToMainIPCPerCoil(coil).flightRecorder.requestState, undefined);
         }
     }
 
@@ -142,24 +150,11 @@ export class Sliders extends TTComponent<SlidersProps, SliderUIState> {
                 controllingRelative={this.state.controllingRelativeOntime}
                 setControllingRelative={b => this.setState({controllingRelativeOntime: b})}
                 level={this.props.level}
-            />
-            <SimpleSliderFixedTitle
-                // The slider itself counts in tenths so the range input keeps its step of 1; only
-                // the title shows microseconds.
-                title={'Ontime fine: +' + (this.state.ontimeFine / 10).toFixed(1) + ' µs (total ' +
-                    ((this.state.ontimeAbs + this.state.ontimeFine / 10) * this.state.ontimeRel / 100).toFixed(1) +
-                    ' µs)'}
-                value={this.state.ontimeFine}
-                min={0}
-                max={9}
-                setValue={(tenths) => {
-                    this.setState({ontimeFine: tenths});
-                    if (coilIPC) {
-                        processIPC.send(coilIPC.sliders.setOntimeFine, tenths);
-                    }
-                }}
-                visuallyEnabled={busOn}
-                disabled={this.props.disabled || !coilIPC}
+                flightRecording={this.state.flightRecording}
+                setFlightRecording={coilIPC && ((recording) => processIPC.send(
+                    recording ? coilIPC.flightRecorder.startRecording : coilIPC.flightRecorder.stopRecording,
+                    undefined,
+                ))}
             />
             <SimpleSlider
                 title={'BPS'}

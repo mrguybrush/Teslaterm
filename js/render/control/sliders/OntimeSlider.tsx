@@ -16,6 +16,9 @@ export interface OntimeSliderProps {
     controllingRelative: boolean;
     setControllingRelative: (val: boolean) => any;
     level: TabControlLevel;
+    // undefined when there's no coil to record for (e.g. the central-control tab).
+    flightRecording: boolean;
+    setFlightRecording?: (val: boolean) => any;
 }
 
 export class OntimeSlider extends TTComponent<OntimeSliderProps, {}> {
@@ -53,6 +56,14 @@ export class OntimeSlider extends TTComponent<OntimeSliderProps, {}> {
                     onChange={(e) => this.props.setControllingRelative(e.target.checked)}
                     checked={relative}
                 /><label htmlFor={'enable-relative-ontime'}>Relative</label>
+                {' '}
+                <input
+                    id={'enable-flight-session-record'}
+                    type={'checkbox'}
+                    disabled={!this.props.setFlightRecording}
+                    onChange={(e) => this.props.setFlightRecording(e.target.checked)}
+                    checked={this.props.flightRecording}
+                /><label htmlFor={'enable-flight-session-record'}>Flight Session record</label>
             </>;
         } else {
             relativeControl = <></>;
